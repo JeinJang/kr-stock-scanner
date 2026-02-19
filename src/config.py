@@ -18,7 +18,8 @@ class Settings(BaseSettings):
 
 
 class ScannerSection(BaseModel):
-    markets: list[str] = ["KOSPI", "KOSDAQ", "ETF"]
+    markets: list[str] = ["KOSPI", "KOSDAQ"]
+    # markets: list[str] = ["KOSPI", "KOSDAQ", "ETF"]
     lookback_days: int = 250
     max_ai_analyze: int = 50
 

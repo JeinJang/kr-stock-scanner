@@ -1,6 +1,7 @@
 # KRX Scanner Configuration
 scanner:
-  markets: ["KOSPI", "KOSDAQ", "ETF"]
+  # markets: ["KOSPI", "KOSDAQ", "ETF"]
+  markets: ["KOSPI", "KOSDAQ"]
   lookback_days: 250
   max_ai_analyze: 50
 
