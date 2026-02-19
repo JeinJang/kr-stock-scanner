@@ -56,12 +56,20 @@ def run(
     for ticker in daily_data:
         if ticker not in name_map:
             try:
-                name_map[ticker] = pykrx_stock.get_market_ticker_name(ticker)
+                name = pykrx_stock.get_market_ticker_name(ticker)
+                if isinstance(name, str) and name:
+                    name_map[ticker] = name
+                    continue
             except Exception:
-                try:
-                    name_map[ticker] = pykrx_stock.get_etf_ticker_name(ticker)
-                except Exception:
-                    name_map[ticker] = ticker
+                pass
+            try:
+                name = pykrx_stock.get_etf_ticker_name(ticker)
+                if isinstance(name, str) and name:
+                    name_map[ticker] = name
+                    continue
+            except Exception:
+                pass
+            name_map[ticker] = ticker
 
     # Step 3: Scan for 52-week highs
     console.print("[dim]3/5 52주 신고가 스캔 중...[/dim]")
