@@ -1,0 +1,21 @@
+# KRX Scanner Configuration
+scanner:
+  markets: ["KOSPI", "KOSDAQ", "ETF"]
+  lookback_days: 250
+  max_ai_analyze: 50
+
+news:
+  provider: "naver_api"
+  max_articles_per_stock: 5
+  search_days: 3
+
+ai:
+  model: "gpt-4o-mini"
+  max_tokens: 300
+
+telegram:
+  enabled: true
+
+schedule:
+  run_time: "16:00"
+  timezone: "Asia/Seoul"
