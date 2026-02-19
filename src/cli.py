@@ -95,7 +95,6 @@ def run(
     analyst = AIAnalyst(
         api_key=settings.openai_api_key,
         model=config.ai.model,
-        max_tokens=config.ai.max_tokens,
     )
     ai_results = asyncio.run(
         analyst.analyze_stocks(highs, news_map, market_caps, config.scanner.max_ai_analyze)
@@ -214,7 +213,6 @@ def test_ai():
         response = client.chat.completions.create(
             model=config.ai.model,
             messages=[{"role": "user", "content": "삼성전자가 52주 신고가를 기록한 이유를 한 문장으로 분석해주세요."}],
-            max_completion_tokens=200,
         )
         content = response.choices[0].message.content
         console.print(f"\n[green]API 연결 성공![/green]")

@@ -9,10 +9,9 @@ from src.models import StockHigh, NewsArticle, AIAnalysisResult
 class AIAnalyst:
     """Analyzes stock rise reasons using OpenAI GPT."""
 
-    def __init__(self, api_key: str, model: str = "gpt-5-nano", max_tokens: int = 600):
+    def __init__(self, api_key: str, model: str = "gpt-5-nano"):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.model = model
-        self.max_tokens = max_tokens
 
     async def analyze_stock(
         self, stock: StockHigh, news: list[NewsArticle]
@@ -41,7 +40,6 @@ class AIAnalyst:
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=self.max_tokens,
         )
 
         content = response.choices[0].message.content
