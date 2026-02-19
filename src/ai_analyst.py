@@ -44,7 +44,8 @@ class AIAnalyst:
             max_completion_tokens=self.max_tokens,
         )
 
-        analysis = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        analysis = content.strip() if content else "분석 결과를 생성하지 못했습니다."
 
         news_links = [a.link for a in news if a.link]
 

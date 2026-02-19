@@ -1,10 +1,14 @@
 # src/reporter.py
 import asyncio
+from html import escape
 
 from loguru import logger
 from telegram import Bot
+from telegram.constants import ParseMode
 
 from src.models import ScanResult, AIAnalysisResult
+
+NAVER_STOCK_URL = "https://finance.naver.com/item/main.naver?code={ticker}"
 
 
 def split_message(text: str, max_length: int = 4096) -> list[str]:
@@ -32,6 +36,12 @@ def split_message(text: str, max_length: int = 4096) -> list[str]:
     return chunks
 
 
+def _stock_link(name: str, ticker: str) -> str:
+    """Create an HTML link to Naver Finance for a stock."""
+    url = NAVER_STOCK_URL.format(ticker=ticker)
+    return f'<a href="{url}">{escape(name)} ({ticker})</a>'
+
+
 class Reporter:
     """Formats and sends reports via Telegram."""
 
@@ -45,14 +55,14 @@ class Reporter:
         ai_analyses: list[AIAnalysisResult],
         trend: list[dict],
     ) -> str:
-        """Format a ScanResult into a Telegram message string."""
+        """Format a ScanResult into a Telegram HTML message string."""
         s = result.stats
         lines = []
 
-        lines.append(f"📊 52주 신고가 리포트 ({result.scan_date})")
+        lines.append(f"📊 <b>52주 신고가 리포트 ({result.scan_date})</b>")
         lines.append("")
 
-        lines.append("■ 시장 요약")
+        lines.append("<b>■ 시장 요약</b>")
         lines.append(
             f"• 신고가 종목: {s.new_high_count}개 "
             f"(KOSPI {s.kospi_count} / KOSDAQ {s.kosdaq_count} / ETF {s.etf_count})"
@@ -72,38 +82,40 @@ class Reporter:
             key=lambda x: len(x[1]),
             reverse=True,
         )
-        lines.append("■ 섹터별 TOP")
+        lines.append("<b>■ 섹터별 TOP</b>")
         for i, (sector, stocks) in enumerate(sorted_sectors[:5], 1):
-            names = ", ".join(st.name for st in stocks[:3])
+            names = ", ".join(escape(st.name) for st in stocks[:3])
             suffix = "..." if len(stocks) > 3 else ""
-            lines.append(f"{i}. {sector} ({len(stocks)}종목): {names}{suffix}")
+            lines.append(f"{i}. {escape(sector)} ({len(stocks)}종목): {names}{suffix}")
         lines.append("")
 
         ai_map = {a.ticker: a for a in ai_analyses}
         if ai_analyses:
-            lines.append("■ 주요 종목 AI 분석")
+            lines.append("<b>■ 주요 종목 AI 분석</b>")
             lines.append("")
             for stock in result.highs:
                 if stock.ticker in ai_map:
                     a = ai_map[stock.ticker]
+                    link = _stock_link(stock.name, stock.ticker)
                     lines.append(
-                        f"▶ {stock.name} ({stock.ticker}) | "
+                        f"▶ {link} | "
                         f"{stock.close_price:,.0f}원 | +{stock.breakout_pct:.1f}%"
                     )
-                    lines.append(f"{a.ai_analysis}")
+                    lines.append(escape(a.ai_analysis))
                     if a.news_links:
                         lines.append("관련 기사:")
-                        for link in a.news_links:
-                            lines.append(f"  🔗 {link}")
+                        for news_link in a.news_links:
+                            lines.append(f"  🔗 {news_link}")
                     lines.append("─" * 30)
                     lines.append("")
             lines.append("")
 
-        lines.append("■ 전체 52주 신고가 목록")
+        lines.append("<b>■ 전체 52주 신고가 목록</b>")
         for stock in sorted(result.highs, key=lambda h: h.breakout_pct, reverse=True):
+            link = _stock_link(stock.name, stock.ticker)
             lines.append(
-                f"  {stock.name} | {stock.close_price:,.0f}원 | "
-                f"+{stock.breakout_pct:.1f}% | {stock.sector}"
+                f"  {link} | {stock.close_price:,.0f}원 | "
+                f"+{stock.breakout_pct:.1f}% | {escape(stock.sector)}"
             )
 
         return "\n".join(lines)
@@ -115,6 +127,8 @@ class Reporter:
             await bot.send_message(
                 chat_id=self.chat_id,
                 text=chunk,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
             await asyncio.sleep(0.5)
 
