@@ -12,7 +12,7 @@ news:
 
 ai:
   model: "gpt-5-nano"
-  max_tokens: 300
+  max_tokens: 600
 
 telegram:
   enabled: true

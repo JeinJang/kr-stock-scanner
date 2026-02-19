@@ -9,7 +9,7 @@ from src.models import StockHigh, NewsArticle, AIAnalysisResult
 class AIAnalyst:
     """Analyzes stock rise reasons using OpenAI GPT."""
 
-    def __init__(self, api_key: str, model: str = "gpt-5-nano", max_tokens: int = 300):
+    def __init__(self, api_key: str, model: str = "gpt-5-nano", max_tokens: int = 600):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.model = model
         self.max_tokens = max_tokens
@@ -22,7 +22,7 @@ class AIAnalyst:
             f"- {a.title}: {a.description}" for a in news
         ) if news else "관련 뉴스 없음"
 
-        prompt = f"""다음 종목이 52주 신고가를 기록했습니다. 관련 뉴스를 바탕으로 상승 이유를 1-2문장으로 분석해주세요.
+        prompt = f"""다음 종목이 52주 신고가를 기록했습니다. 관련 뉴스를 바탕으로 아래 형식에 맞춰 분석해주세요.
 
 종목: {stock.name} ({stock.ticker})
 시장: {stock.market} / 섹터: {stock.sector}
@@ -33,7 +33,10 @@ class AIAnalyst:
 최근 뉴스:
 {news_text}
 
-분석 (1-2문장, 한국어):"""
+아래 형식으로 한국어 분석을 작성해주세요:
+[상승 원인] 이 종목이 52주 신고가를 기록한 핵심 원인을 2~3문장으로 구체적으로 설명 (실적, 수주, 정책, 수급 등 구체적 이유 포함)
+[핵심 뉴스] 가장 관련도 높은 뉴스 1~2개를 한 줄씩 요약
+[투자 포인트] 향후 주가에 영향을 줄 수 있는 핵심 변수 1~2개를 간단히 언급"""
 
         response = await self.client.chat.completions.create(
             model=self.model,

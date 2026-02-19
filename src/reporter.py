@@ -82,16 +82,20 @@ class Reporter:
         ai_map = {a.ticker: a for a in ai_analyses}
         if ai_analyses:
             lines.append("■ 주요 종목 AI 분석")
+            lines.append("")
             for stock in result.highs:
                 if stock.ticker in ai_map:
                     a = ai_map[stock.ticker]
                     lines.append(
-                        f"🔹 {stock.name} ({stock.ticker}) | "
+                        f"▶ {stock.name} ({stock.ticker}) | "
                         f"{stock.close_price:,.0f}원 | +{stock.breakout_pct:.1f}%"
                     )
-                    lines.append(f"   📰 {a.ai_analysis}")
-                    for link in a.news_links:
-                        lines.append(f"   🔗 {link}")
+                    lines.append(f"{a.ai_analysis}")
+                    if a.news_links:
+                        lines.append("관련 기사:")
+                        for link in a.news_links:
+                            lines.append(f"  🔗 {link}")
+                    lines.append("─" * 30)
                     lines.append("")
             lines.append("")
 
