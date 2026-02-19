@@ -35,13 +35,14 @@ def test_find_new_highs():
     }
 
     mock_collector = MagicMock()
-    # 005930: high=79000, 52w high=79000 -> matches today, NEW HIGH (prev was 77000)
-    # 000660: high=210000, 52w high=215000 -> doesn't match, NOT new high
-    # 035420: high=215000, 52w high=215000 -> matches today, NEW HIGH (prev was 214000)
+    # get_52w_high now returns the previous 52w high (excluding today)
+    # 005930: today_high=79000 >= prev_52w=77000 -> NEW HIGH, breakout +2.60%
+    # 000660: today_high=210000 < prev_52w=215000 -> NOT new high
+    # 035420: today_high=215000 >= prev_52w=214000 -> NEW HIGH, breakout +0.47%
     mock_collector.get_52w_high.side_effect = lambda t, d, **kw: {
-        "005930": 79000,
+        "005930": 77000,
         "000660": 215000,
-        "035420": 215000,
+        "035420": 214000,
     }[t]
 
     scanner = Scanner(collector=mock_collector)
@@ -50,13 +51,16 @@ def test_find_new_highs():
         date_str="20260219",
         sector_map=sector_map,
         name_map=name_map,
-        prev_highs={"005930": 77000, "000660": 215000, "035420": 214000},
     )
 
     tickers = [h.ticker for h in highs]
     assert "005930" in tickers
     assert "035420" in tickers
     assert "000660" not in tickers
+
+    samsung = next(h for h in highs if h.ticker == "005930")
+    assert samsung.breakout_pct == 2.6
+    assert samsung.prev_high_52w == 77000
 
 
 def test_build_scan_result():

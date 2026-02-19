@@ -48,14 +48,16 @@ class Collector:
         return result
 
     def get_52w_high(self, ticker: str, date_str: str, lookback: int = 250) -> float:
-        """Get the 52-week high price for a ticker."""
+        """Get the 52-week high price for a ticker, excluding the given date."""
         from datetime import datetime, timedelta
 
         end = datetime.strptime(date_str, "%Y%m%d")
+        prev_day = end - timedelta(days=1)
         start = end - timedelta(days=int(lookback * 1.5))
         start_str = start.strftime("%Y%m%d")
+        prev_str = prev_day.strftime("%Y%m%d")
 
-        df = stock.get_market_ohlcv_by_date(start_str, date_str, ticker)
+        df = stock.get_market_ohlcv_by_date(start_str, prev_str, ticker)
         if df.empty:
             return 0.0
         return float(df["고가"].max())

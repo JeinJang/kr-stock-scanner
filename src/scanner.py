@@ -20,7 +20,6 @@ class Scanner:
         date_str: str,
         sector_map: dict[str, str],
         name_map: dict[str, str],
-        prev_highs: dict[str, float] | None = None,
         lookback: int = 250,
     ) -> list[StockHigh]:
         """Find stocks that hit 52-week highs on the given date."""
@@ -31,13 +30,12 @@ class Scanner:
             if today_high == 0:
                 continue
 
-            high_52w = self.collector.get_52w_high(ticker, date_str, lookback=lookback)
+            prev_52w_high = self.collector.get_52w_high(ticker, date_str, lookback=lookback)
 
-            if today_high >= high_52w and high_52w > 0:
-                prev_high = prev_highs.get(ticker, high_52w) if prev_highs else high_52w
+            if today_high >= prev_52w_high and prev_52w_high > 0:
                 breakout_pct = (
-                    ((today_high - prev_high) / prev_high * 100)
-                    if prev_high > 0 else 0.0
+                    ((today_high - prev_52w_high) / prev_52w_high * 100)
+                    if prev_52w_high > 0 else 0.0
                 )
 
                 highs.append(StockHigh(
@@ -47,7 +45,7 @@ class Scanner:
                     sector=sector_map.get(ticker, "기타"),
                     close_price=data["close"],
                     high_52w=today_high,
-                    prev_high_52w=prev_high,
+                    prev_high_52w=prev_52w_high,
                     breakout_pct=round(breakout_pct, 2),
                     volume=data["volume"],
                     avg_volume_20d=0,

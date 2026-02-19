@@ -39,14 +39,13 @@ def test_full_pipeline_with_mocks(mock_env, tmp_path):
     mock_collector.collect_daily.return_value = daily_data
     mock_collector.get_sector_map.return_value = sector_map
     mock_collector.get_market_caps.return_value = market_caps
-    mock_collector.get_52w_high.return_value = 79000
+    mock_collector.get_52w_high.return_value = 77000  # prev 52w high (excluding today)
 
     # Scan
     scanner = Scanner(collector=mock_collector)
     highs = scanner.find_new_highs(
         daily_data=daily_data, date_str="20260219",
         sector_map=sector_map, name_map=name_map,
-        prev_highs={"005930": 77000},
     )
     result = scanner.build_scan_result(date(2026, 2, 19), highs, 1)
 
