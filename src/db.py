@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Column, Integer, String, Float, BigInteger, Date, DateTime, Text,
-    create_engine, select,
+    create_engine, delete, select,
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -60,6 +60,13 @@ class Database:
 
     def save_scan_result(self, result: ScanResult) -> None:
         with Session(self.engine) as session:
+            # Delete existing data for the same date
+            session.execute(
+                delete(DailyScan).where(DailyScan.scan_date == result.scan_date)
+            )
+            session.execute(
+                delete(NewHigh).where(NewHigh.scan_date == result.scan_date)
+            )
             session.add(DailyScan(
                 scan_date=result.scan_date,
                 total_stocks=result.stats.total_stocks,
@@ -110,6 +117,13 @@ class Database:
 
     def save_ai_analysis(self, scan_date: date, analysis: AIAnalysisResult) -> None:
         with Session(self.engine) as session:
+            # Delete existing analysis for the same date + ticker
+            session.execute(
+                delete(AIAnalysis).where(
+                    AIAnalysis.scan_date == scan_date,
+                    AIAnalysis.ticker == analysis.ticker,
+                )
+            )
             session.add(AIAnalysis(
                 ticker=analysis.ticker,
                 scan_date=scan_date,
