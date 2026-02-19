@@ -71,14 +71,22 @@ class AIAnalyst:
         )[:max_analyze]
 
         results = []
+        fail_count = 0
+        last_error = None
         for stock in sorted_stocks:
             try:
                 news = news_map.get(stock.name, [])
                 result = await self.analyze_stock(stock, news)
                 results.append(result)
             except Exception as e:
-                logger.warning(f"AI analysis failed for {stock.ticker}: {e}")
+                fail_count += 1
+                last_error = e
+                logger.error(f"AI analysis failed for {stock.name} ({stock.ticker}): {type(e).__name__}: {e}")
+                # Stop early if all attempts are failing with the same error
+                if fail_count >= 3 and len(results) == 0:
+                    logger.error(f"AI analysis aborted: {fail_count} consecutive failures. Last error: {e}")
+                    break
             await asyncio.sleep(0.5)
 
-        logger.info(f"Completed AI analysis for {len(results)}/{len(stocks)} stocks")
+        logger.info(f"Completed AI analysis: {len(results)} success / {fail_count} failed / {len(sorted_stocks)} total")
         return results

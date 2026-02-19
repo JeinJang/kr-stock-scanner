@@ -194,5 +194,43 @@ def stats(
     console.print(f"  최대: {max(counts)} / 최소: {min(counts)}")
 
 
+@app.command(name="test-ai")
+def test_ai():
+    """Test OpenAI API connection and model response."""
+    settings = Settings()
+    config = load_scanner_config()
+
+    if not settings.openai_api_key:
+        console.print("[red]OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.[/red]")
+        return
+
+    console.print(f"[dim]모델: {config.ai.model}[/dim]")
+    console.print(f"[dim]API Key: {settings.openai_api_key[:8]}...{settings.openai_api_key[-4:]}[/dim]")
+    console.print("[dim]테스트 요청 전송 중...[/dim]")
+
+    import openai
+    try:
+        client = openai.OpenAI(api_key=settings.openai_api_key)
+        response = client.chat.completions.create(
+            model=config.ai.model,
+            messages=[{"role": "user", "content": "삼성전자가 52주 신고가를 기록한 이유를 한 문장으로 분석해주세요."}],
+            max_completion_tokens=200,
+        )
+        content = response.choices[0].message.content
+        console.print(f"\n[green]API 연결 성공![/green]")
+        console.print(f"[dim]응답 content 타입: {type(content).__name__}[/dim]")
+        console.print(f"[dim]응답 content 값: {repr(content)}[/dim]")
+        if content:
+            console.print(f"\n[bold]AI 응답:[/bold]\n{content}")
+        else:
+            refusal = response.choices[0].message.refusal
+            console.print(f"[yellow]content가 비어있습니다.[/yellow]")
+            console.print(f"[dim]refusal: {repr(refusal)}[/dim]")
+            console.print(f"[dim]전체 message: {response.choices[0].message}[/dim]")
+    except Exception as e:
+        console.print(f"\n[red]API 호출 실패: {type(e).__name__}[/red]")
+        console.print(f"[red]{e}[/red]")
+
+
 if __name__ == "__main__":
     app()
