@@ -38,7 +38,7 @@ class AIAnalyst:
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=self.max_tokens,
+            max_completion_tokens=self.max_tokens,
             temperature=0.3,
         )
 
