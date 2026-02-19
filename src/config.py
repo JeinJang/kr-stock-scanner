@@ -30,7 +30,7 @@ class NewsSection(BaseModel):
 
 
 class AISection(BaseModel):
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-nano"
     max_tokens: int = 300
 
 

@@ -31,7 +31,7 @@ news:
   max_articles_per_stock: 3
   search_days: 2
 ai:
-  model: "gpt-4o-mini"
+  model: "gpt-5-nano"
   max_tokens: 200
 telegram:
   enabled: false
@@ -45,5 +45,5 @@ telegram:
     assert config.scanner.markets == ["KOSPI", "KOSDAQ"]
     assert config.scanner.lookback_days == 200
     assert config.news.max_articles_per_stock == 3
-    assert config.ai.model == "gpt-4o-mini"
+    assert config.ai.model == "gpt-5-nano"
     assert config.telegram.enabled is False

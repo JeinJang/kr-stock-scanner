@@ -28,7 +28,7 @@ async def test_analyze_stock():
         mock_client.chat.completions.create.return_value = mock_response
         mock_cls.return_value = mock_client
 
-        analyst = AIAnalyst(api_key="test-key", model="gpt-4o-mini")
+        analyst = AIAnalyst(api_key="test-key", model="gpt-5-nano")
         result = await analyst.analyze_stock(stock, news)
 
     assert result.ticker == "005930"
@@ -60,7 +60,7 @@ async def test_analyze_stocks_respects_max_limit():
         mock_client.chat.completions.create.return_value = mock_response
         mock_cls.return_value = mock_client
 
-        analyst = AIAnalyst(api_key="test-key", model="gpt-4o-mini")
+        analyst = AIAnalyst(api_key="test-key", model="gpt-5-nano")
         results = await analyst.analyze_stocks(
             stocks, news_map, market_caps, max_analyze=3
         )

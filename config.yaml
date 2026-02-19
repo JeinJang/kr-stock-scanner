@@ -10,7 +10,7 @@ news:
   search_days: 3
 
 ai:
-  model: "gpt-4o-mini"
+  model: "gpt-5-nano"
   max_tokens: 300
 
 telegram:

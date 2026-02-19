@@ -9,7 +9,7 @@ from src.models import StockHigh, NewsArticle, AIAnalysisResult
 class AIAnalyst:
     """Analyzes stock rise reasons using OpenAI GPT."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", max_tokens: int = 300):
+    def __init__(self, api_key: str, model: str = "gpt-5-nano", max_tokens: int = 300):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.model = model
         self.max_tokens = max_tokens
