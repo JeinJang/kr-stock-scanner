@@ -39,7 +39,6 @@ class AIAnalyst:
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=self.max_tokens,
-            temperature=0.3,
         )
 
         analysis = response.choices[0].message.content.strip()
