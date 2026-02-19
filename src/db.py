@@ -49,6 +49,7 @@ class AIAnalysis(Base):
     scan_date = Column(Date, nullable=False, index=True)
     news_summary = Column(Text, nullable=False)
     ai_analysis = Column(Text, nullable=False)
+    news_links = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now)
 
 
@@ -114,6 +115,7 @@ class Database:
                 scan_date=scan_date,
                 news_summary=analysis.news_summary,
                 ai_analysis=analysis.ai_analysis,
+                news_links="\n".join(analysis.news_links),
             ))
             session.commit()
 

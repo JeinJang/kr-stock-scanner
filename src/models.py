@@ -53,3 +53,4 @@ class AIAnalysisResult(BaseModel):
     ticker: str
     news_summary: str
     ai_analysis: str
+    news_links: list[str] = []

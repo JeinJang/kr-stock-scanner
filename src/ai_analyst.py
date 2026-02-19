@@ -43,10 +43,13 @@ class AIAnalyst:
 
         analysis = response.choices[0].message.content.strip()
 
+        news_links = [a.link for a in news if a.link]
+
         return AIAnalysisResult(
             ticker=stock.ticker,
             news_summary=news_text[:500],
             ai_analysis=analysis,
+            news_links=news_links[:3],
         )
 
     async def analyze_stocks(

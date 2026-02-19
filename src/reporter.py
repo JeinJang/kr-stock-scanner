@@ -90,6 +90,8 @@ class Reporter:
                         f"{stock.close_price:,.0f}원 | +{stock.breakout_pct:.1f}%"
                     )
                     lines.append(f"   📰 {a.ai_analysis}")
+                    for link in a.news_links:
+                        lines.append(f"   🔗 {link}")
                     lines.append("")
             lines.append("")
 
