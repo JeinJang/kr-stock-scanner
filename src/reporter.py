@@ -1,0 +1,126 @@
+# src/reporter.py
+import asyncio
+from datetime import date
+
+from loguru import logger
+from telegram import Bot
+from telegram.constants import ParseMode
+
+from src.models import ScanResult, AIAnalysisResult
+
+
+def split_message(text: str, max_length: int = 4096) -> list[str]:
+    """Split a long message into chunks that fit Telegram's limit."""
+    if len(text) <= max_length:
+        return [text]
+
+    chunks = []
+    current = ""
+
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > max_length:
+            if current:
+                chunks.append(current)
+                current = ""
+            while len(line) > max_length:
+                chunks.append(line[:max_length])
+                line = line[max_length:]
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+class Reporter:
+    """Formats and sends reports via Telegram."""
+
+    def __init__(self, bot_token: str, chat_id: int):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+
+    def format_report(
+        self,
+        result: ScanResult,
+        ai_analyses: list[AIAnalysisResult],
+        trend: list[dict],
+    ) -> str:
+        """Format a ScanResult into a Telegram message string."""
+        s = result.stats
+        lines = []
+
+        lines.append(f"📊 52주 신고가 리포트 ({result.scan_date})")
+        lines.append("")
+
+        lines.append("■ 시장 요약")
+        lines.append(
+            f"• 신고가 종목: {s.new_high_count}개 "
+            f"(KOSPI {s.kospi_count} / KOSDAQ {s.kosdaq_count} / ETF {s.etf_count})"
+        )
+        if len(trend) >= 2:
+            prev = trend[-2]["count"]
+            diff = s.new_high_count - prev
+            sign = "+" if diff >= 0 else ""
+            lines.append(f"• 전일 대비: {sign}{diff}개")
+        if trend:
+            trend_str = "→".join(str(t["count"]) for t in trend)
+            lines.append(f"• 최근 추이: {trend_str}")
+        lines.append("")
+
+        sorted_sectors = sorted(
+            result.sector_breakdown.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        )
+        lines.append("■ 섹터별 TOP")
+        for i, (sector, stocks) in enumerate(sorted_sectors[:5], 1):
+            names = ", ".join(st.name for st in stocks[:3])
+            suffix = "..." if len(stocks) > 3 else ""
+            lines.append(f"{i}. {sector} ({len(stocks)}종목): {names}{suffix}")
+        lines.append("")
+
+        ai_map = {a.ticker: a for a in ai_analyses}
+        if ai_analyses:
+            lines.append("■ 주요 종목 AI 분석")
+            for stock in result.highs:
+                if stock.ticker in ai_map:
+                    a = ai_map[stock.ticker]
+                    lines.append(
+                        f"🔹 {stock.name} ({stock.ticker}) | "
+                        f"{stock.close_price:,.0f}원 | +{stock.breakout_pct:.1f}%"
+                    )
+                    lines.append(f"   📰 {a.ai_analysis}")
+                    lines.append("")
+            lines.append("")
+
+        lines.append("■ 전체 52주 신고가 목록")
+        for stock in sorted(result.highs, key=lambda h: h.breakout_pct, reverse=True):
+            lines.append(
+                f"  {stock.name} | {stock.close_price:,.0f}원 | "
+                f"+{stock.breakout_pct:.1f}% | {stock.sector}"
+            )
+
+        return "\n".join(lines)
+
+    async def send(self, text: str) -> None:
+        """Send a message via Telegram Bot, splitting if needed."""
+        bot = Bot(token=self.bot_token)
+        for chunk in split_message(text):
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text=chunk,
+            )
+            await asyncio.sleep(0.5)
+
+    async def send_report(
+        self,
+        result: ScanResult,
+        ai_analyses: list[AIAnalysisResult],
+        trend: list[dict],
+    ) -> None:
+        """Format and send a complete scan report."""
+        text = self.format_report(result, ai_analyses, trend)
+        await self.send(text)
+        logger.info(f"Report sent to Telegram chat {self.chat_id}")
