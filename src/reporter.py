@@ -1,10 +1,8 @@
 # src/reporter.py
 import asyncio
-from datetime import date
 
 from loguru import logger
 from telegram import Bot
-from telegram.constants import ParseMode
 
 from src.models import ScanResult, AIAnalysisResult
 

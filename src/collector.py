@@ -1,5 +1,4 @@
 # src/collector.py
-import pandas as pd
 from loguru import logger
 from pykrx import stock
 

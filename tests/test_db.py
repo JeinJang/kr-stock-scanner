@@ -48,7 +48,7 @@ def test_save_and_load_scan_result(db):
 
 
 def test_get_new_high_count_history(db):
-    from src.models import ScanResult, StockHigh, MarketStats
+    from src.models import ScanResult, MarketStats
 
     for day_offset, count in [(1, 10), (2, 15), (3, 12)]:
         d = date(2026, 2, day_offset)

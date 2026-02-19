@@ -1,12 +1,11 @@
 # tests/test_scanner.py
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 def test_find_new_highs():
     """Scanner should identify stocks at 52-week highs."""
     from src.scanner import Scanner
-    from src.models import StockHigh
 
     daily_data = {
         "005930": {

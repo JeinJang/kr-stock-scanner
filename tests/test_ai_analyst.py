@@ -40,7 +40,7 @@ async def test_analyze_stock():
 async def test_analyze_stocks_respects_max_limit():
     """Should only analyze up to max_analyze stocks by market cap."""
     from src.ai_analyst import AIAnalyst
-    from src.models import StockHigh, NewsArticle
+    from src.models import StockHigh
 
     stocks = [
         StockHigh(

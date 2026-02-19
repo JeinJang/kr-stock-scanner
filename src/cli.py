@@ -3,7 +3,6 @@ import asyncio
 from datetime import date, datetime
 
 import typer
-from loguru import logger
 from rich.console import Console
 from rich.table import Table
 

@@ -1,7 +1,7 @@
 # tests/test_reporter.py
 import pytest
 from datetime import date
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 
 def test_format_report():

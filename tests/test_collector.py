@@ -1,6 +1,5 @@
 # tests/test_collector.py
-from datetime import date
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pandas as pd
 
 

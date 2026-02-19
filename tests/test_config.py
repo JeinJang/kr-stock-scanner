@@ -1,6 +1,4 @@
-import os
-import pytest
-from pathlib import Path
+# tests/test_config.py
 
 
 def test_settings_loads_from_env(monkeypatch, tmp_path):

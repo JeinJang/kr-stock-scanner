@@ -1,7 +1,6 @@
 # tests/test_news_fetcher.py
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-import httpx
 
 
 @pytest.mark.asyncio

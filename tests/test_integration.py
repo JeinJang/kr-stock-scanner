@@ -2,8 +2,7 @@
 """Integration test: verifies the full pipeline works end-to-end with mocks."""
 import pytest
 from datetime import date
-from unittest.mock import patch, MagicMock, AsyncMock
-import pandas as pd
+from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -19,16 +18,11 @@ def test_full_pipeline_with_mocks(mock_env, tmp_path):
     """Full pipeline should collect, scan, analyze, and produce a report."""
     from src.collector import Collector
     from src.scanner import Scanner
-    from src.news_fetcher import NewsFetcher
-    from src.ai_analyst import AIAnalyst
     from src.reporter import Reporter
     from src.db import Database
-    from src.config import Settings, load_scanner_config
 
     # Setup
     db = Database(f"sqlite:///{tmp_path}/test.db")
-    settings = Settings()
-    config = load_scanner_config()
 
     # Mock collector
     daily_data = {

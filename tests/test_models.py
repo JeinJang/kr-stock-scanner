@@ -22,7 +22,7 @@ def test_stock_high_model():
 
 
 def test_scan_result_model():
-    from src.models import ScanResult, StockHigh, MarketStats
+    from src.models import ScanResult, MarketStats
 
     result = ScanResult(
         scan_date=date(2026, 2, 19),
