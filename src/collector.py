@@ -57,7 +57,7 @@ class Collector:
         start_str = start.strftime("%Y%m%d")
         prev_str = prev_day.strftime("%Y%m%d")
 
-        df = stock.get_market_ohlcv_by_date(start_str, prev_str, ticker)
+        df = stock.get_market_ohlcv_by_date(start_str, prev_str, ticker, adjusted=False)
         if df.empty:
             return 0.0
         return float(df["고가"].max())
