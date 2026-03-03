@@ -18,6 +18,16 @@ def _get_date_str(target_date: date | None = None) -> str:
     return d.strftime("%Y%m%d")
 
 
+def _make_client(settings: Settings):
+    """Create a KrxClient from settings."""
+    from src.krx_client import create_krx_client
+    return create_krx_client(
+        krx_id=getattr(settings, "krx_id", ""),
+        krx_pw=getattr(settings, "krx_pw", ""),
+        krx_api_key=settings.krx_api_key,
+    )
+
+
 @app.command()
 def run(
     target_date: str = typer.Option(None, "--date", "-d", help="Target date (YYYYMMDD)"),
@@ -38,8 +48,9 @@ def run(
     from src.reporter import Reporter
     from src.db import Database
 
+    client = _make_client(settings)
     db = Database()
-    collector = Collector()
+    collector = Collector(client=client)
     scanner = Scanner(collector=collector)
 
     # Step 1: Collect daily data
@@ -52,18 +63,17 @@ def run(
     name_map = {}
     for market in ["KOSPI", "KOSDAQ"]:
         sector_map.update(collector.get_sector_map(date_str, market))
-    from pykrx import stock as pykrx_stock
     for ticker in daily_data:
         if ticker not in name_map:
             try:
-                name = pykrx_stock.get_market_ticker_name(ticker)
+                name = client.get_market_ticker_name(ticker, date=date_str)
                 if isinstance(name, str) and name:
                     name_map[ticker] = name
                     continue
             except Exception:
                 pass
             try:
-                name = pykrx_stock.get_etf_ticker_name(ticker)
+                name = client.get_etf_ticker_name(ticker, date=date_str)
                 if isinstance(name, str) and name:
                     name_map[ticker] = name
                     continue
@@ -124,10 +134,12 @@ def collect(
 ):
     """Collect daily market data only."""
     date_str = target_date or _get_date_str()
+    settings = Settings()
     config = load_scanner_config()
 
     from src.collector import Collector
-    collector = Collector()
+    client = _make_client(settings)
+    collector = Collector(client=client)
     daily_data = collector.collect_daily(date_str, markets=config.scanner.markets)
     console.print(f"[green]수집 완료: {len(daily_data)}개 종목[/green]")
 

@@ -11,8 +11,8 @@ from src.models import StockHigh, ScanResult, MarketStats
 class Scanner:
     """Identifies 52-week high stocks from daily market data."""
 
-    def __init__(self, collector: Collector | None = None):
-        self.collector = collector or Collector()
+    def __init__(self, collector: Collector):
+        self.collector = collector
 
     def find_new_highs(
         self,

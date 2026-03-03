@@ -8,13 +8,16 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Secret settings loaded from environment variables / .env file."""
 
+    krx_api_key: str = ""
+    krx_id: str = ""
+    krx_pw: str = ""
     openai_api_key: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: int = 0
     naver_client_id: str = ""
     naver_client_secret: str = ""
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 class ScannerSection(BaseModel):

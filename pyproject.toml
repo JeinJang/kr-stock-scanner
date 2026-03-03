@@ -5,7 +5,7 @@ description = "Korean stock market 52-week high scanner with AI analysis"
 requires-python = ">=3.11"
 
 dependencies = [
-    "pykrx>=1.0.45",
+    "requests>=2.31.0",
     "sqlalchemy>=2.0.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
