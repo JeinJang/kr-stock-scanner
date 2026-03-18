@@ -148,3 +148,81 @@ class Database:
                 "news_summary": row.news_summary,
                 "ai_analysis": row.ai_analysis,
             }
+
+    def get_ai_analyzed_tickers(self, scan_date: date) -> set[str]:
+        """해당 날짜에 이미 AI 분석 완료된 티커 set 반환."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(AIAnalysis.ticker).where(AIAnalysis.scan_date == scan_date)
+            ).scalars().all()
+            return set(rows)
+
+    def get_all_ai_analyses(self, scan_date: date) -> list[AIAnalysisResult]:
+        """해당 날짜의 모든 AI 분석 결과를 AIAnalysisResult로 반환."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(AIAnalysis).where(AIAnalysis.scan_date == scan_date)
+            ).scalars().all()
+            return [
+                AIAnalysisResult(
+                    ticker=r.ticker,
+                    news_summary=r.news_summary,
+                    ai_analysis=r.ai_analysis,
+                    news_links=r.news_links.split("\n") if r.news_links else [],
+                )
+                for r in rows
+            ]
+
+    def get_scan_result_full(self, scan_date: date) -> ScanResult | None:
+        """DB에서 ScanResult 객체를 복원. 없으면 None."""
+        with Session(self.engine) as session:
+            scan = session.execute(
+                select(DailyScan).where(DailyScan.scan_date == scan_date)
+            ).scalar_one_or_none()
+            if scan is None:
+                return None
+
+            rows = session.execute(
+                select(NewHigh).where(NewHigh.scan_date == scan_date)
+            ).scalars().all()
+
+            from src.models import StockHigh, MarketStats
+            highs = [
+                StockHigh(
+                    ticker=r.ticker, name=r.name, market=r.market,
+                    sector=r.sector, close_price=r.close_price,
+                    high_52w=r.high_52w, prev_high_52w=r.prev_high_52w,
+                    breakout_pct=r.breakout_pct, volume=r.volume,
+                    avg_volume_20d=r.avg_volume_20d,
+                )
+                for r in rows
+            ]
+
+            sector_breakdown: dict[str, list] = {}
+            for h in highs:
+                sector_breakdown.setdefault(h.sector, []).append(h)
+
+            kospi = sum(1 for h in highs if h.market == "KOSPI")
+            kosdaq = sum(1 for h in highs if h.market == "KOSDAQ")
+            etf = sum(1 for h in highs if h.market == "ETF")
+
+            return ScanResult(
+                scan_date=scan_date,
+                stats=MarketStats(
+                    total_stocks=scan.total_stocks,
+                    new_high_count=scan.new_high_count,
+                    kospi_count=kospi,
+                    kosdaq_count=kosdaq,
+                    etf_count=etf,
+                ),
+                highs=highs,
+                sector_breakdown=sector_breakdown,
+            )
+
+    def delete_ai_analyses(self, scan_date: date) -> None:
+        """해당 날짜의 AI 분석 결과 전체 삭제."""
+        with Session(self.engine) as session:
+            session.execute(
+                delete(AIAnalysis).where(AIAnalysis.scan_date == scan_date)
+            )
+            session.commit()

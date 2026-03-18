@@ -41,88 +41,111 @@ def run(
 
     console.print(f"[bold]52주 신고가 스캔 시작: {date_str}[/bold]")
 
-    from src.collector import Collector
-    from src.scanner import Scanner
     from src.news_fetcher import NewsFetcher
     from src.ai_analyst import AIAnalyst
     from src.reporter import Reporter
     from src.db import Database
 
-    client = _make_client(settings)
     db = Database()
-    collector = Collector(client=client)
-    scanner = Scanner(collector=collector)
 
-    # Step 1: Collect daily data
-    console.print("[dim]1/5 데이터 수집 중...[/dim]")
-    daily_data = collector.collect_daily(date_str, markets=config.scanner.markets)
+    # Step 1-3: 수집/스캔 (DB에 이전 결과 있으면 스킵)
+    existing = db.get_scan_result_full(scan_date)
+    market_caps: dict[str, int] = {}
+    if existing:
+        console.print("[dim]1-3/5 이전 스캔 결과 사용 (DB에서 로드)[/dim]")
+        result = existing
+        highs = result.highs
+    else:
+        from src.collector import Collector
+        from src.scanner import Scanner
 
-    # Step 2: Get sector info and stock names
-    console.print("[dim]2/5 섹터 정보 수집 중...[/dim]")
-    sector_map = {}
-    name_map = {}
-    for market in ["KOSPI", "KOSDAQ"]:
-        sector_map.update(collector.get_sector_map(date_str, market))
-    for ticker in daily_data:
-        if ticker not in name_map:
-            try:
-                name = client.get_market_ticker_name(ticker, date=date_str)
-                if isinstance(name, str) and name:
-                    name_map[ticker] = name
-                    continue
-            except Exception:
-                pass
-            try:
-                name = client.get_etf_ticker_name(ticker, date=date_str)
-                if isinstance(name, str) and name:
-                    name_map[ticker] = name
-                    continue
-            except Exception:
-                pass
-            name_map[ticker] = ticker
+        client = _make_client(settings)
+        collector = Collector(client=client)
+        scanner = Scanner(collector=collector)
 
-    # Step 3: Scan for 52-week highs
-    console.print("[dim]3/5 52주 신고가 스캔 중...[/dim]")
-    market_caps = collector.get_market_caps(date_str)
-    highs = scanner.find_new_highs(
-        daily_data=daily_data,
-        date_str=date_str,
-        sector_map=sector_map,
-        name_map=name_map,
-        lookback=config.scanner.lookback_days,
-    )
-    result = scanner.build_scan_result(scan_date, highs, len(daily_data))
-    db.save_scan_result(result)
+        # Step 1: Collect daily data
+        console.print("[dim]1/5 데이터 수집 중...[/dim]")
+        daily_data = collector.collect_daily(date_str, markets=config.scanner.markets)
 
-    # Step 4: Fetch news and AI analysis
-    console.print("[dim]4/5 뉴스 수집 및 AI 분석 중...[/dim]")
-    stock_names = [h.name for h in highs]
-    fetcher = NewsFetcher(settings.naver_client_id, settings.naver_client_secret)
-    news_map = asyncio.run(
-        fetcher.fetch_news_for_stocks(stock_names, config.news.max_articles_per_stock)
-    )
+        # Step 2: Get sector info and stock names
+        console.print("[dim]2/5 섹터 정보 수집 중...[/dim]")
+        sector_map = {}
+        name_map = {}
+        for market in ["KOSPI", "KOSDAQ"]:
+            sector_map.update(collector.get_sector_map(date_str, market))
+        for ticker in daily_data:
+            if ticker not in name_map:
+                try:
+                    name = client.get_market_ticker_name(ticker, date=date_str)
+                    if isinstance(name, str) and name:
+                        name_map[ticker] = name
+                        continue
+                except Exception:
+                    pass
+                try:
+                    name = client.get_etf_ticker_name(ticker, date=date_str)
+                    if isinstance(name, str) and name:
+                        name_map[ticker] = name
+                        continue
+                except Exception:
+                    pass
+                name_map[ticker] = ticker
 
-    analyst = AIAnalyst(
-        api_key=settings.openai_api_key,
-        model=config.ai.model,
-    )
-    ai_results = asyncio.run(
-        analyst.analyze_stocks(highs, news_map, market_caps, config.scanner.max_ai_analyze)
-    )
-    for ar in ai_results:
-        db.save_ai_analysis(scan_date, ar)
+        # Step 3: Scan for 52-week highs
+        console.print("[dim]3/5 52주 신고가 스캔 중...[/dim]")
+        market_caps = collector.get_market_caps(date_str)
+        highs = scanner.find_new_highs(
+            daily_data=daily_data,
+            date_str=date_str,
+            sector_map=sector_map,
+            name_map=name_map,
+            lookback=config.scanner.lookback_days,
+        )
+        result = scanner.build_scan_result(scan_date, highs, len(daily_data))
+        db.save_scan_result(result)
 
-    # Step 5: Send report
+    # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵)
+    done_tickers = db.get_ai_analyzed_tickers(scan_date)
+    remaining = [h for h in highs if h.ticker not in done_tickers]
+
+    if remaining:
+        skipped = len(highs) - len(remaining)
+        if skipped:
+            console.print(f"[dim]4/5 AI 분석 중... ({skipped}개 스킵, {len(remaining)}개 남음)[/dim]")
+        else:
+            console.print("[dim]4/5 뉴스 수집 및 AI 분석 중...[/dim]")
+
+        stock_names = [h.name for h in remaining]
+        fetcher = NewsFetcher(settings.naver_client_id, settings.naver_client_secret)
+        news_map = asyncio.run(
+            fetcher.fetch_news_for_stocks(stock_names, config.news.max_articles_per_stock)
+        )
+
+        analyst = AIAnalyst(
+            api_key=settings.openai_api_key,
+            model=config.ai.model,
+        )
+        ai_results = asyncio.run(
+            analyst.analyze_stocks(remaining, news_map, market_caps, config.scanner.max_ai_analyze)
+        )
+        for ar in ai_results:
+            db.save_ai_analysis(scan_date, ar)
+    else:
+        console.print("[dim]4/5 AI 분석 스킵 (모두 완료됨)[/dim]")
+
+    # Step 5: DB에서 전체 AI 결과 로드하여 리포트 전송
     console.print("[dim]5/5 리포트 전송 중...[/dim]")
+    all_ai = db.get_all_ai_analyses(scan_date)
     trend = db.get_high_count_history(days=5)
 
     if config.telegram.enabled and settings.telegram_bot_token:
         reporter = Reporter(settings.telegram_bot_token, settings.telegram_chat_id)
-        asyncio.run(reporter.send_report(result, ai_results, trend))
+        asyncio.run(reporter.send_report(result, all_ai, trend))
         console.print("[green]텔레그램 리포트 전송 완료![/green]")
+        db.delete_ai_analyses(scan_date)
     else:
         reporter = Reporter(bot_token="", chat_id=0)
-        text = reporter.format_report(result, ai_results, trend)
+        text = reporter.format_report(result, all_ai, trend)
         console.print(text)
 
     console.print(f"[bold green]완료! {result.stats.new_high_count}개 신고가 종목 발견[/bold green]")

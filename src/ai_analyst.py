@@ -1,9 +1,16 @@
 import asyncio
+import re
 
 import openai
 from loguru import logger
 
 from src.models import StockHigh, NewsArticle, AIAnalysisResult
+
+
+def _sanitize(text: str) -> str:
+    """Remove characters that can break JSON serialization."""
+    text = text.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
 
 
 class AIAnalyst:
@@ -39,7 +46,7 @@ class AIAnalyst:
 
         response = await self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": _sanitize(prompt)}],
         )
 
         content = response.choices[0].message.content

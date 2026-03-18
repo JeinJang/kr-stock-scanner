@@ -1,4 +1,5 @@
 import asyncio
+import html
 import re
 
 import httpx
@@ -7,9 +8,14 @@ from loguru import logger
 from src.models import NewsArticle
 
 
-def _strip_html(text: str) -> str:
-    """Remove HTML tags from Naver API response text."""
-    return re.sub(r"<[^>]+>", "", text).strip()
+def _clean_text(text: str) -> str:
+    """Remove HTML tags, decode entities, and strip characters that break JSON."""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    # Remove control chars + surrogates + other problematic unicode
+    text = text.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+    return text.strip()
 
 
 class NewsFetcher:
@@ -40,9 +46,9 @@ class NewsFetcher:
         articles = []
         for item in data.get("items", []):
             articles.append(NewsArticle(
-                title=_strip_html(item["title"]),
+                title=_clean_text(item["title"]),
                 link=item.get("link", item.get("originallink", "")),
-                description=_strip_html(item.get("description", "")),
+                description=_clean_text(item.get("description", "")),
                 source="",
                 pub_date=item.get("pubDate", ""),
             ))
