@@ -9,8 +9,13 @@ from src.models import StockHigh, NewsArticle, AIAnalysisResult
 
 def _sanitize(text: str) -> str:
     """Remove characters that can break JSON serialization."""
-    text = text.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
-    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+    # Remove surrogates and invalid Unicode by round-tripping through UTF-8
+    text = text.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="ignore")
+    # Remove control characters (keep \n and \t)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+    # Remove lone surrogates that survived encoding
+    text = re.sub(r"[\ud800-\udfff]", "", text)
+    return text
 
 
 class AIAnalyst:
@@ -25,7 +30,7 @@ class AIAnalyst:
     ) -> AIAnalysisResult:
         """Analyze why a stock hit its 52-week high using news context."""
         news_text = "\n".join(
-            f"- {a.title}: {a.description}" for a in news
+            f"- {_sanitize(a.title)}: {_sanitize(a.description)}" for a in news
         ) if news else "관련 뉴스 없음"
 
         prompt = f"""다음 종목이 52주 신고가를 기록했습니다. 관련 뉴스를 바탕으로 아래 형식에 맞춰 분석해주세요.
