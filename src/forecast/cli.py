@@ -24,6 +24,7 @@ def _resolve_scan_date(target_date: str | None) -> date:
 def run(
     target_date: str = typer.Option(None, "--date", "-d", help="Scan date to use (YYYYMMDD)"),
     horizon: int = typer.Option(None, "--horizon", "-H", help="Forecast horizon in trading days"),
+    covariates: bool = typer.Option(False, "--covariates", help="Use macro indicators as covariates (experimental)"),
 ):
     """Run forecast pipeline for scanned 52-week high stocks."""
     settings = Settings()
@@ -119,11 +120,10 @@ def run(
         if macro_r:
             macro_cov[indicator_name] = (hist_values, macro_r.forecast)
 
-    if macro_cov:
-        console.print(f"[dim]   공변량 {len(macro_cov)}개: {', '.join(macro_cov.keys())}[/dim]")
+    if covariates and macro_cov:
+        console.print(f"[dim]   공변량 {len(macro_cov)}개: {', '.join(macro_cov.keys())} (experimental)[/dim]")
         stock_results = predictor.predict_with_covariates(stock_items, macro_cov)
     else:
-        console.print("[dim]   매크로 공변량 없음, 단일 지표 예측 사용[/dim]")
         stock_results = predictor.predict_batch(stock_items)
 
     # Step 4: Generate report
