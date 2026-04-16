@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Forecast Report — {{ scan_date }}</title>
+  <script>{{ plotly_js }}</script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f6f9;
+      color: #2c3e50;
+      line-height: 1.6;
+    }
+    header {
+      background: linear-gradient(135deg, #2c3e50, #3498db);
+      color: #fff;
+      padding: 2rem;
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; margin-bottom: 0.3rem; }
+    header p { opacity: 0.8; font-size: 0.95rem; }
+    .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
+    section { margin-bottom: 3rem; }
+    h2 {
+      font-size: 1.4rem;
+      color: #2c3e50;
+      border-left: 4px solid #3498db;
+      padding-left: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    h3 { font-size: 1.1rem; color: #34495e; margin-bottom: 0.5rem; }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    /* Macro grid */
+    .macro-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 1.5rem;
+    }
+    /* Summary table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th {
+      background: #eaf0fb;
+      text-align: left;
+      padding: 0.6rem 1rem;
+      font-weight: 600;
+      border-bottom: 2px solid #d0dce8;
+    }
+    td { padding: 0.55rem 1rem; border-bottom: 1px solid #eceff1; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .up { color: #e74c3c; font-weight: 600; }
+    .down { color: #2980b9; font-weight: 600; }
+    .neutral { color: #7f8c8d; }
+    .highlight-green td { background: #e8f8f0 !important; }
+    /* Risk badges */
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-low { background: #d5f5e3; color: #1e8449; }
+    .badge-mid { background: #fdebd0; color: #d35400; }
+    .badge-high { background: #fce4e4; color: #c0392b; }
+    /* Collapsible stock cards */
+    .stock-card { margin-bottom: 1.5rem; }
+    .stock-card-header {
+      background: #fff;
+      border-radius: 10px 10px 0 0;
+      padding: 1rem 1.5rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      user-select: none;
+    }
+    .stock-card-header:hover { background: #f8fafc; }
+    .stock-card-body {
+      background: #fff;
+      border-radius: 0 0 10px 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+      padding: 1.5rem;
+      overflow: hidden;
+    }
+    .stock-card-body.collapsed { display: none; }
+    .chevron { font-size: 1rem; transition: transform 0.2s; }
+    .chevron.open { transform: rotate(180deg); }
+    /* AI box */
+    .ai-box {
+      background: #f0f4ff;
+      border-left: 4px solid #3498db;
+      border-radius: 6px;
+      padding: 1rem 1.2rem;
+      margin-top: 1rem;
+      font-size: 0.88rem;
+      white-space: pre-wrap;
+    }
+    .ai-box-title { font-weight: 700; color: #2c3e50; margin-bottom: 0.4rem; font-size: 0.9rem; }
+    .news-box {
+      background: #f9f9f9;
+      border-left: 4px solid #95a5a6;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: #555;
+    }
+    /* Scatter section */
+    #risk-scatter { width: 100%; height: 480px; }
+    .chart-container { width: 100%; height: 300px; }
+    footer {
+      text-align: center;
+      color: #aaa;
+      font-size: 0.8rem;
+      padding: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📈 주식 예측 리포트</h1>
+  <p>스캔 날짜: {{ scan_date }} &nbsp;|&nbsp; 예측 기간: {{ horizon }}일</p>
+</header>
+
+<div class="container">
+
+  <!-- ===== Section 1: Macro Dashboard ===== -->
+  {% if macro_results %}
+  <section id="macro">
+    <h2>1. 매크로 대시보드</h2>
+    <div class="macro-grid">
+      {% for r in macro_results %}
+      <div class="card">
+        <h3>{{ indicator_names.get(r.ticker, r.name) }}</h3>
+        <div id="macro-chart-{{ loop.index0 }}" class="chart-container"></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>매크로 지표 요약</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>지표</th>
+            <th>현재가</th>
+            <th>예측가 (마지막)</th>
+            <th>예측 수익률</th>
+            <th>불확실성</th>
+            <th>방향</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in macro_results %}
+          {% set current = r.history[-1] %}
+          {% set forecasted = r.forecast[-1] %}
+          {% set direction_class = "up" if r.predicted_return >= 0 else "down" %}
+          {% set arrow = "▲" if r.predicted_return >= 0 else "▼" %}
+          <tr>
+            <td>{{ indicator_names.get(r.ticker, r.name) }}</td>
+            <td>{{ "%.2f"|format(current) }}</td>
+            <td>{{ "%.2f"|format(forecasted) }}</td>
+            <td class="{{ direction_class }}">{{ "%.2f"|format(r.predicted_return) }}%</td>
+            <td>{{ "%.2f"|format(r.uncertainty) }}%</td>
+            <td class="{{ direction_class }}">{{ arrow }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ===== Section 2: Stock Forecast Charts ===== -->
+  {% if stock_results %}
+  <section id="stocks">
+    <h2>2. 종목별 예측 차트</h2>
+    {% for r in stock_results %}
+    <div class="stock-card">
+      <div class="stock-card-header" onclick="toggleCard('stock-body-{{ loop.index0 }}', 'chevron-{{ loop.index0 }}')">
+        <div>
+          <strong>{{ r.name }}</strong>
+          <span style="color:#888; margin-left:0.5rem; font-size:0.85rem;">{{ r.ticker }}</span>
+          {% set dir_cls = "up" if r.predicted_return >= 0 else "down" %}
+          <span class="{{ dir_cls }}" style="margin-left:1rem;">
+            {{ "%.2f"|format(r.predicted_return) }}%
+            {{ "▲" if r.predicted_return >= 0 else "▼" }}
+          </span>
+        </div>
+        <span class="chevron {{ 'open' if loop.index <= 5 else '' }}" id="chevron-{{ loop.index0 }}">▼</span>
+      </div>
+      <div class="stock-card-body {{ '' if loop.index <= 5 else 'collapsed' }}" id="stock-body-{{ loop.index0 }}">
+        <div id="stock-chart-{{ loop.index0 }}" class="chart-container" style="height:320px;"></div>
+        {% if r.ticker in ai_analyses %}
+        {% set ai = ai_analyses[r.ticker] %}
+        {% if ai.get("ai_analysis") %}
+        <div class="ai-box">
+          <div class="ai-box-title">AI 분석</div>
+          {{ ai["ai_analysis"] }}
+        </div>
+        {% endif %}
+        {% if ai.get("news_summary") %}
+        <div class="news-box">📰 {{ ai["news_summary"] }}</div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <!-- ===== Section 3: Stock Ranking Table ===== -->
+  {% if ranked_stocks %}
+  <section id="ranking">
+    <h2>3. 종목 순위</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>종목명</th>
+            <th>현재가</th>
+            <th>예측가</th>
+            <th>예측 수익률</th>
+            <th>불확실성</th>
+            <th>섹터</th>
+            <th>위험등급</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ranked_stocks %}
+          {% set current = r.history[-1] %}
+          {% set forecasted = r.forecast[-1] %}
+          {% set dir_cls = "up" if r.predicted_return >= 0 else "down" %}
+          {% set risk_level = "low" if r.uncertainty < 5 else ("mid" if r.uncertainty < 15 else "high") %}
+          {% set risk_label = "낮음" if risk_level == "low" else ("중간" if risk_level == "mid" else "높음") %}
+          <tr class="{{ 'highlight-green' if r.predicted_return > 5 else '' }}">
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ r.name }}</strong><br><span style="color:#aaa;font-size:0.78rem;">{{ r.ticker }}</span></td>
+            <td>{{ "%.2f"|format(current) }}</td>
+            <td>{{ "%.2f"|format(forecasted) }}</td>
+            <td class="{{ dir_cls }}">{{ "%.2f"|format(r.predicted_return) }}%</td>
+            <td>{{ "%.2f"|format(r.uncertainty) }}%</td>
+            <td>{{ r.sector if r.sector else "-" }}</td>
+            <td><span class="badge badge-{{ risk_level }}">{{ risk_label }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ===== Section 4: Risk Scatter ===== -->
+  {% if stock_results %}
+  <section id="risk">
+    <h2>4. 리스크-수익률 산점도</h2>
+    <div class="card">
+      <div id="risk-scatter"></div>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ===== Section 5: AI Analyses (ai_only_stocks) ===== -->
+  {% if ai_only_stocks %}
+  <section id="ai-only">
+    <h2>5. AI 분석 (예측 미포함 종목)</h2>
+    {% for ticker, data in ai_only_stocks.items() %}
+    <div class="card">
+      <h3>{{ ticker }}</h3>
+      {% if data.get("ai_analysis") %}
+      <div class="ai-box">
+        <div class="ai-box-title">AI 분석</div>
+        {{ data["ai_analysis"] }}
+      </div>
+      {% endif %}
+      {% if data.get("news_summary") %}
+      <div class="news-box">📰 {{ data["news_summary"] }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+</div><!-- /container -->
+
+<footer>Generated by kr-stock-scanner &nbsp;|&nbsp; {{ scan_date }}</footer>
+
+<script>
+(function() {
+
+  var macroData = {{ macro_results | map(attribute='__dict__') | list | tojson }};
+  var stockData = {{ stock_results | map(attribute='__dict__') | list | tojson }};
+
+  function makeChartTraces(r) {
+    var allDates = r.dates_history.concat(r.dates_forecast);
+    var histTrace = {
+      x: r.dates_history,
+      y: r.history,
+      mode: 'lines',
+      name: '실제',
+      line: { color: '#2c3e50', width: 2 }
+    };
+    var forecastTrace = {
+      x: r.dates_forecast,
+      y: r.forecast,
+      mode: 'lines',
+      name: '예측',
+      line: { color: '#e74c3c', width: 2, dash: 'dot' }
+    };
+    var bandHigh = {
+      x: r.dates_forecast,
+      y: r.quantile_high,
+      mode: 'lines',
+      name: '상한',
+      line: { color: 'rgba(231,76,60,0.2)', width: 0 },
+      showlegend: false
+    };
+    var bandLow = {
+      x: r.dates_forecast,
+      y: r.quantile_low,
+      fill: 'tonexty',
+      fillcolor: 'rgba(231,76,60,0.15)',
+      mode: 'lines',
+      name: '신뢰구간',
+      line: { color: 'rgba(231,76,60,0.2)', width: 0 }
+    };
+    return [histTrace, bandHigh, bandLow, forecastTrace];
+  }
+
+  var layout = {
+    margin: { t: 20, b: 40, l: 50, r: 20 },
+    legend: { orientation: 'h', y: -0.2 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    xaxis: { showgrid: false },
+    yaxis: { showgrid: true, gridcolor: '#ecf0f1' }
+  };
+
+  var config = { responsive: true, displayModeBar: false };
+
+  // Macro charts
+  for (var i = 0; i < macroData.length; i++) {
+    var el = document.getElementById('macro-chart-' + i);
+    if (el) {
+      Plotly.newPlot(el, makeChartTraces(macroData[i]), Object.assign({}, layout), config);
+    }
+  }
+
+  // Stock charts
+  for (var j = 0; j < stockData.length; j++) {
+    var sel = document.getElementById('stock-chart-' + j);
+    if (sel) {
+      Plotly.newPlot(sel, makeChartTraces(stockData[j]), Object.assign({}, layout), config);
+    }
+  }
+
+  // Risk scatter
+  var riskEl = document.getElementById('risk-scatter');
+  if (riskEl && stockData.length > 0) {
+    var scatterTrace = {
+      x: stockData.map(function(r) { return r.uncertainty; }),
+      y: stockData.map(function(r) { return r.predicted_return; }),
+      text: stockData.map(function(r) { return r.name + ' (' + r.ticker + ')'; }),
+      mode: 'markers+text',
+      textposition: 'top center',
+      marker: {
+        size: 12,
+        color: stockData.map(function(r) { return r.predicted_return >= 0 ? '#e74c3c' : '#2980b9'; }),
+        opacity: 0.8
+      },
+      type: 'scatter'
+    };
+    var scatterLayout = Object.assign({}, layout, {
+      xaxis: { title: '불확실성 (%)', showgrid: true, gridcolor: '#ecf0f1' },
+      yaxis: { title: '예측 수익률 (%)', showgrid: true, gridcolor: '#ecf0f1', zeroline: true, zerolinecolor: '#bdc3c7' },
+      height: 480,
+      margin: { t: 30, b: 60, l: 60, r: 30 }
+    });
+    Plotly.newPlot(riskEl, [scatterTrace], scatterLayout, config);
+  }
+
+})();
+
+function toggleCard(bodyId, chevronId) {
+  var body = document.getElementById(bodyId);
+  var chevron = document.getElementById(chevronId);
+  if (!body) return;
+  var collapsed = body.classList.toggle('collapsed');
+  if (chevron) {
+    if (collapsed) {
+      chevron.classList.remove('open');
+    } else {
+      chevron.classList.add('open');
+    }
+  }
+}
+</script>
+</body>
+</html>
