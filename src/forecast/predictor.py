@@ -141,11 +141,13 @@ class Predictor:
         )
 
         # Run covariate forecast for point estimates
+        # "timesfm + xreg": TimesFM predicts first, XReg refines with covariates
+        # High ridge (1.0) prevents overfitting to covariate trends
         cov_forecast, _ = self._model.forecast_with_covariates(
             inputs=inputs,
             dynamic_numerical_covariates=dynamic_covs,
-            xreg_mode="xreg + timesfm",
-            ridge=0.01,
+            xreg_mode="timesfm + xreg",
+            ridge=1.0,
             normalize_xreg_target_per_input=True,
         )
 
