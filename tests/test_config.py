@@ -47,3 +47,23 @@ telegram:
     assert config.news.max_articles_per_stock == 3
     assert config.ai.model == "gpt-5-nano"
     assert config.telegram.enabled is False
+
+
+def test_forecast_config_defaults():
+    from src.config import ForecastSection, ScannerConfig
+    config = ScannerConfig()
+    assert config.forecast.horizon == 60
+    assert config.forecast.model == "google/timesfm-2.5-200m-pytorch"
+    assert config.forecast.report_dir == "reports"
+
+
+def test_settings_has_ecos_fred_keys():
+    import os
+    os.environ["ECOS_API_KEY"] = "test-ecos"
+    os.environ["FRED_API_KEY"] = "test-fred"
+    from src.config import Settings
+    s = Settings()
+    assert s.ecos_api_key == "test-ecos"
+    assert s.fred_api_key == "test-fred"
+    os.environ.pop("ECOS_API_KEY", None)
+    os.environ.pop("FRED_API_KEY", None)

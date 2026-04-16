@@ -17,6 +17,11 @@ ai:
 telegram:
   enabled: true
 
+forecast:
+  horizon: 60
+  model: "google/timesfm-2.5-200m-pytorch"
+  report_dir: "reports"
+
 schedule:
   run_time: "16:00"
   timezone: "Asia/Seoul"

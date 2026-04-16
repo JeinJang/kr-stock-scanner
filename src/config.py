@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     telegram_chat_id: int = 0
     naver_client_id: str = ""
     naver_client_secret: str = ""
+    ecos_api_key: str = ""
+    fred_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
@@ -42,11 +44,18 @@ class TelegramSection(BaseModel):
     enabled: bool = True
 
 
+class ForecastSection(BaseModel):
+    horizon: int = 60
+    model: str = "google/timesfm-2.5-200m-pytorch"
+    report_dir: str = "reports"
+
+
 class ScannerConfig(BaseModel):
     scanner: ScannerSection = ScannerSection()
     news: NewsSection = NewsSection()
     ai: AISection = AISection()
     telegram: TelegramSection = TelegramSection()
+    forecast: ForecastSection = ForecastSection()
 
 
 def load_scanner_config(path: Path | None = None) -> ScannerConfig:
