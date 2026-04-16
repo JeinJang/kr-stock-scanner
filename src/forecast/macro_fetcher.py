@@ -69,12 +69,20 @@ class MacroFetcher:
             val_str = row.get("DATA_VALUE", "")
             if val_str == "" or val_str == "-":
                 continue
-            dates.append(row["TIME"])
+            raw_date = row["TIME"]
+            # ECOS returns YYYYMMDD — convert to YYYY-MM-DD for Plotly
+            if len(raw_date) == 8 and "-" not in raw_date:
+                raw_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+            dates.append(raw_date)
             values.append(float(val_str))
         return dates, values
 
     def fetch_all_ecos(self, lookback_days: int = 400) -> dict[str, tuple[list[str], list[float]]]:
         """Fetch all ECOS indicators for the given lookback period."""
+        if not self._ecos_key:
+            logger.warning("ECOS_API_KEY not set, skipping ECOS indicators")
+            return {}
+
         end = datetime.now()
         start = end - timedelta(days=lookback_days)
         start_str = start.strftime("%Y%m%d")
@@ -106,12 +114,16 @@ class MacroFetcher:
         series: pd.Series = fred.get_series(series_id, start, end)
         series = series.dropna()
 
-        dates = [d.strftime("%Y%m%d") for d in series.index]
+        dates = [d.strftime("%Y-%m-%d") for d in series.index]
         values = [float(v) for v in series.values]
         return dates, values
 
     def fetch_all_fred(self, lookback_days: int = 400) -> dict[str, tuple[list[str], list[float]]]:
         """Fetch all FRED indicators."""
+        if not self._fred_key:
+            logger.warning("FRED_API_KEY not set, skipping FRED indicators")
+            return {}
+
         results: dict[str, tuple[list[str], list[float]]] = {}
         for name, series_id in FRED_INDICATORS.items():
             logger.info(f"Fetching FRED: {name} ({series_id})")

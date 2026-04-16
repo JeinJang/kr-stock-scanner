@@ -31,6 +31,7 @@ def test_fetch_ecos_kospi():
         )
 
     assert len(dates) == 3
+    assert dates == ["2026-01-01", "2026-01-02", "2026-01-03"]
     assert values == [2800.0, 2810.0, 2820.0]
     assert "ecos.bok.or.kr" in mock_get.call_args[0][0]
 

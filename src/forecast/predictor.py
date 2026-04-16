@@ -27,13 +27,14 @@ class Predictor:
 
     def _generate_forecast_dates(self, last_date_str: str, n: int) -> list[str]:
         """Generate n future business dates starting from last_date."""
-        last = datetime.strptime(last_date_str, "%Y%m%d")
+        fmt = "%Y-%m-%d" if "-" in last_date_str else "%Y%m%d"
+        last = datetime.strptime(last_date_str, fmt)
         dates = []
         current = last
         while len(dates) < n:
             current += timedelta(days=1)
             if current.weekday() < 5:  # skip weekends
-                dates.append(current.strftime("%Y%m%d"))
+                dates.append(current.strftime("%Y-%m-%d"))
         return dates
 
     def predict_single(

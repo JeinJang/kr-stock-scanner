@@ -39,6 +39,7 @@ def test_predict_single():
     assert len(result.quantile_low) == 5
     assert len(result.quantile_high) == 5
     assert result.predicted_return > 0  # price went up
+    assert all("-" in d for d in result.dates_forecast)  # YYYY-MM-DD format
 
 
 def test_predict_batch():

@@ -29,7 +29,10 @@ class StockFetcher:
         if df.empty or "종가" not in df.columns:
             return [], []
 
-        dates = [d.strftime("%Y%m%d") for d in df.index]
+        dates = [
+            d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+            for d in df.index
+        ]
         values = [float(v) for v in df["종가"].values]
         return dates, values
 
