@@ -98,6 +98,16 @@ $ python -m src.cli run
 
 52주 신고가 스캔 결과를 기반으로 TimesFM 모델을 이용한 주가/매크로 예측 및 HTML 리포트 생성.
 
+### 설치
+
+```bash
+# 기본 패키지 설치 (스캐너만 사용)
+pip install -e ".[dev]"
+
+# forecast 모듈 추가 설치 (TimesFM + PyTorch)
+pip install -e ".[forecast]"
+```
+
 ### 추가 설정
 
 `.env` 파일에 추가:
@@ -105,6 +115,11 @@ $ python -m src.cli run
 ECOS_API_KEY=your_ecos_api_key    # 한국은행 ECOS API
 FRED_API_KEY=your_fred_api_key    # FRED API
 ```
+
+| API | 발급처 | 비용 |
+|-----|--------|------|
+| ECOS | [ecos.bok.or.kr](https://ecos.bok.or.kr) → 개발자센터 → 인증키 신청 | 무료 |
+| FRED | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) | 무료 |
 
 ### 사용법
 
@@ -171,14 +186,21 @@ kr-stock-scanner/
 ├── data/
 │   └── scanner.db        # SQLite DB (자동 생성)
 ├── src/
-│   ├── cli.py            # CLI 진입점 (run/collect/history/stats)
+│   ├── cli.py            # 스캐너 CLI (run/collect/history/stats)
 │   ├── config.py         # 설정 로더
 │   ├── models.py         # 데이터 모델
 │   ├── db.py             # SQLite ORM
-│   ├── collector.py      # KRX 데이터 수집 (pykrx)
+│   ├── collector.py      # KRX 데이터 수집
 │   ├── scanner.py        # 52주 신고가 감지
 │   ├── news_fetcher.py   # 네이버 뉴스 수집
 │   ├── ai_analyst.py     # OpenAI GPT 분석
-│   └── reporter.py       # 텔레그램 리포트
-└── tests/                # 26개 테스트
+│   ├── reporter.py       # 텔레그램 리포트
+│   └── forecast/         # 주가 예측 모듈
+│       ├── cli.py        # 예측 CLI (run/list-reports)
+│       ├── macro_fetcher.py  # ECOS + FRED 매크로 데이터
+│       ├── stock_fetcher.py  # KRX 종목 과거 가격
+│       ├── predictor.py      # TimesFM 예측 엔진
+│       ├── report.py         # HTML 리포트 생성
+│       └── templates/        # Jinja2 템플릿
+└── tests/                # 48개 테스트
 ```
