@@ -26,8 +26,9 @@ dependencies = [
 
 [project.optional-dependencies]
 forecast = [
-    "timesfm[xreg] @ git+https://github.com/google-research/timesfm.git",
+    "timesfm @ git+https://github.com/google-research/timesfm.git",
     "torch>=2.0.0",
+    "scikit-learn>=1.0.0",
 ]
 dev = [
     "pytest>=7.4.0",
