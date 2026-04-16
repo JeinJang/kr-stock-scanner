@@ -94,7 +94,7 @@ def run(
     ]
     macro_results = predictor.predict_batch(macro_items)
 
-    # Stock predictions
+    # Stock predictions with macro covariates
     name_map = {h.ticker: h.name for h in highs}
     sector_map = {h.ticker: h.sector for h in highs}
     stock_items = [
@@ -108,7 +108,23 @@ def run(
         }
         for ticker, (dates, values) in stock_data.items()
     ]
-    stock_results = predictor.predict_batch(stock_items)
+
+    # Build macro covariates from macro data (history) + macro predictions (forecast)
+    macro_cov: dict[str, tuple[list[float], list[float]]] = {}
+    macro_forecast_map = {r.ticker: r for r in macro_results}
+    for indicator_name, (_, hist_values) in macro_data.items():
+        if not hist_values:
+            continue
+        macro_r = macro_forecast_map.get(indicator_name)
+        if macro_r:
+            macro_cov[indicator_name] = (hist_values, macro_r.forecast)
+
+    if macro_cov:
+        console.print(f"[dim]   공변량 {len(macro_cov)}개: {', '.join(macro_cov.keys())}[/dim]")
+        stock_results = predictor.predict_with_covariates(stock_items, macro_cov)
+    else:
+        console.print("[dim]   매크로 공변량 없음, 단일 지표 예측 사용[/dim]")
+        stock_results = predictor.predict_batch(stock_items)
 
     # Step 4: Generate report
     console.print("[dim]4/4 HTML 리포트 생성 중...[/dim]")

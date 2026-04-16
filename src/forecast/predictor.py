@@ -37,40 +37,32 @@ class Predictor:
                 dates.append(current.strftime("%Y-%m-%d"))
         return dates
 
-    def predict_single(
+    def _build_result(
         self,
-        ticker: str,
-        name: str,
-        category: str,
-        history: list[float],
-        dates_history: list[str],
+        item: dict,
+        forecast_values: list[float],
+        q_low: list[float],
+        q_high: list[float],
     ) -> ForecastResult:
-        """Run prediction for a single time series."""
-        inputs = [np.array(history)]
-        point_forecast, quantile_forecast = self._model.forecast(
-            horizon=self._horizon,
-            inputs=inputs,
-        )
-
-        forecast_values = point_forecast[0].tolist()
-        q_low = quantile_forecast[0, :, 1].tolist()   # 10th percentile
-        q_high = quantile_forecast[0, :, 9].tolist()   # 90th percentile
-
-        last_price = history[-1]
+        """Build a ForecastResult from prediction outputs."""
+        last_price = item["history"][-1]
         final_price = forecast_values[-1]
         predicted_return = ((final_price - last_price) / last_price) * 100
 
         avg_spread = np.mean(np.array(q_high) - np.array(q_low))
         uncertainty = (avg_spread / last_price) * 100
 
-        dates_forecast = self._generate_forecast_dates(dates_history[-1], self._horizon)
+        dates_forecast = self._generate_forecast_dates(
+            item["dates_history"][-1], self._horizon,
+        )
 
         return ForecastResult(
-            ticker=ticker,
-            name=name,
-            category=category,
-            history=history,
-            dates_history=dates_history,
+            ticker=item["ticker"],
+            name=item["name"],
+            category=item["category"],
+            sector=item.get("sector", ""),
+            history=item["history"],
+            dates_history=item["dates_history"],
             forecast=forecast_values,
             dates_forecast=dates_forecast,
             quantile_low=q_low,
@@ -82,7 +74,7 @@ class Predictor:
     def predict_batch(
         self, items: list[dict],
     ) -> list[ForecastResult]:
-        """Run batch prediction for multiple time series at once."""
+        """Run batch prediction for multiple time series (no covariates)."""
         if not items:
             return []
 
@@ -97,31 +89,78 @@ class Predictor:
             forecast_values = point_forecast[i].tolist()
             q_low = quantile_forecast[i, :, 1].tolist()
             q_high = quantile_forecast[i, :, 9].tolist()
+            results.append(self._build_result(item, forecast_values, q_low, q_high))
 
-            last_price = item["history"][-1]
-            final_price = forecast_values[-1]
-            predicted_return = ((final_price - last_price) / last_price) * 100
+        return results
 
-            avg_spread = np.mean(np.array(q_high) - np.array(q_low))
-            uncertainty = (avg_spread / last_price) * 100
+    def predict_with_covariates(
+        self,
+        items: list[dict],
+        macro_covariates: dict[str, tuple[list[float], list[float]]],
+    ) -> list[ForecastResult]:
+        """Run prediction with macro indicators as covariates.
 
-            dates_forecast = self._generate_forecast_dates(
-                item["dates_history"][-1], self._horizon,
-            )
+        Args:
+            items: List of stock items with keys: ticker, name, category,
+                   sector, history, dates_history
+            macro_covariates: Dict of indicator_name -> (history_values, forecast_values).
+                              Each indicator provides historical + forecasted values
+                              to be used as dynamic covariates.
+        """
+        if not items:
+            return []
 
-            results.append(ForecastResult(
-                ticker=item["ticker"],
-                name=item["name"],
-                category=item["category"],
-                sector=item.get("sector", ""),
-                history=item["history"],
-                dates_history=item["dates_history"],
-                forecast=forecast_values,
-                dates_forecast=dates_forecast,
-                quantile_low=q_low,
-                quantile_high=q_high,
-                predicted_return=round(predicted_return, 2),
-                uncertainty=round(uncertainty, 2),
-            ))
+        inputs = [np.array(item["history"]) for item in items]
+
+        # Build dynamic covariates: each must be len(history) + horizon per series
+        # We align macro data to each stock's history length by taking the last N points
+        dynamic_covs: dict[str, list[np.ndarray]] = {}
+
+        for cov_name, (cov_hist, cov_forecast) in macro_covariates.items():
+            cov_arrays = []
+            for item in items:
+                stock_len = len(item["history"])
+                # Take last stock_len points from covariate history
+                if len(cov_hist) >= stock_len:
+                    aligned_hist = cov_hist[-stock_len:]
+                else:
+                    # Pad with first value if covariate history is shorter
+                    pad_len = stock_len - len(cov_hist)
+                    aligned_hist = [cov_hist[0]] * pad_len + list(cov_hist)
+
+                # Concat history + forecast for this covariate
+                full = np.array(aligned_hist + list(cov_forecast[:self._horizon]))
+                cov_arrays.append(full)
+
+            dynamic_covs[cov_name] = cov_arrays
+
+        logger.info(
+            f"Predicting {len(items)} stocks with {len(dynamic_covs)} covariates: "
+            f"{list(dynamic_covs.keys())}"
+        )
+
+        # Run covariate forecast for point estimates
+        cov_forecast, _ = self._model.forecast_with_covariates(
+            horizon=self._horizon,
+            inputs=inputs,
+            dynamic_numerical_covariates=dynamic_covs,
+            freq="D",
+            xreg_mode="xreg + timesfm",
+            ridge=0.01,
+            normalize_xreg_target_per_input=True,
+        )
+
+        # Run regular forecast for quantile estimates (covariates API doesn't return quantiles)
+        _, quantile_forecast = self._model.forecast(
+            horizon=self._horizon,
+            inputs=inputs,
+        )
+
+        results = []
+        for i, item in enumerate(items):
+            forecast_values = cov_forecast[i].tolist()
+            q_low = quantile_forecast[i, :, 1].tolist()
+            q_high = quantile_forecast[i, :, 9].tolist()
+            results.append(self._build_result(item, forecast_values, q_low, q_high))
 
         return results
