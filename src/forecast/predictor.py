@@ -22,6 +22,7 @@ class Predictor:
             max_horizon=horizon,
             normalize_inputs=True,
             use_continuous_quantile_head=True,
+            return_backcast=True,
         ))
         logger.info("TimesFM model loaded and compiled")
 
