@@ -141,10 +141,8 @@ class Predictor:
 
         # Run covariate forecast for point estimates
         cov_forecast, _ = self._model.forecast_with_covariates(
-            horizon=self._horizon,
             inputs=inputs,
             dynamic_numerical_covariates=dynamic_covs,
-            freq="D",
             xreg_mode="xreg + timesfm",
             ridge=0.01,
             normalize_xreg_target_per_input=True,
