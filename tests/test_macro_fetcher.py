@@ -48,3 +48,26 @@ def test_fetch_ecos_empty_response():
         )
     assert dates == []
     assert values == []
+
+
+import pandas as pd
+
+
+def test_fetch_fred_series():
+    fetcher = MacroFetcher(ecos_api_key="", fred_api_key="test-fred-key")
+
+    mock_series = pd.Series(
+        [4500.0, 4510.0, 4520.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+    )
+
+    with patch("fredapi.Fred") as MockFred:
+        mock_fred_instance = MagicMock()
+        mock_fred_instance.get_series.return_value = mock_series
+        MockFred.return_value = mock_fred_instance
+
+        dates, values = fetcher.fetch_fred_series("SP500", lookback_days=400)
+
+    assert len(dates) == 3
+    assert values == [4500.0, 4510.0, 4520.0]
+    mock_fred_instance.get_series.assert_called_once()

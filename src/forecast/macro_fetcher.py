@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pandas as pd
 import requests
 from loguru import logger
 
@@ -15,6 +16,12 @@ ECOS_INDICATORS = {
 }
 
 ECOS_BASE_URL = "https://ecos.bok.or.kr/api/StatisticSearch"
+
+FRED_INDICATORS = {
+    "SP500": "SP500",
+    "NASDAQ": "NASDAQCOM",
+    "US_RATE": "FEDFUNDS",
+}
 
 # Display names for indicators
 INDICATOR_NAMES = {
@@ -85,4 +92,36 @@ class MacroFetcher:
             )
             results[name] = (dates, values)
             logger.info(f"  -> {len(values)} data points")
+        return results
+
+    def fetch_fred_series(
+        self, series_id: str, lookback_days: int = 400,
+    ) -> tuple[list[str], list[float]]:
+        """Fetch a single time series from FRED API."""
+        from fredapi import Fred
+
+        fred = Fred(api_key=self._fred_key)
+        end = datetime.now()
+        start = end - timedelta(days=lookback_days)
+        series: pd.Series = fred.get_series(series_id, start, end)
+        series = series.dropna()
+
+        dates = [d.strftime("%Y%m%d") for d in series.index]
+        values = [float(v) for v in series.values]
+        return dates, values
+
+    def fetch_all_fred(self, lookback_days: int = 400) -> dict[str, tuple[list[str], list[float]]]:
+        """Fetch all FRED indicators."""
+        results: dict[str, tuple[list[str], list[float]]] = {}
+        for name, series_id in FRED_INDICATORS.items():
+            logger.info(f"Fetching FRED: {name} ({series_id})")
+            dates, values = self.fetch_fred_series(series_id, lookback_days)
+            results[name] = (dates, values)
+            logger.info(f"  -> {len(values)} data points")
+        return results
+
+    def fetch_all(self, lookback_days: int = 400) -> dict[str, tuple[list[str], list[float]]]:
+        """Fetch all macro indicators from both ECOS and FRED."""
+        results = self.fetch_all_ecos(lookback_days)
+        results.update(self.fetch_all_fred(lookback_days))
         return results
