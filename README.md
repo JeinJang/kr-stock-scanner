@@ -94,6 +94,33 @@ $ python -m src.cli run
 완료! 32개 신고가 종목 발견
 ```
 
+## 주가 예측 (Forecast)
+
+52주 신고가 스캔 결과를 기반으로 TimesFM 모델을 이용한 주가/매크로 예측 및 HTML 리포트 생성.
+
+### 추가 설정
+
+`.env` 파일에 추가:
+```
+ECOS_API_KEY=your_ecos_api_key    # 한국은행 ECOS API
+FRED_API_KEY=your_fred_api_key    # FRED API
+```
+
+### 사용법
+
+```bash
+# 스캐너 먼저 실행
+python -m src.cli run
+
+# 예측 실행 (가장 최근 스캔 결과 기반)
+python -m src.forecast.cli run
+
+# 특정 날짜 & 예측 기간 지정
+python -m src.forecast.cli run --date 20260416 --horizon 40
+```
+
+리포트는 `reports/forecast-YYYY-MM-DD.html`에 생성되며 브라우저에서 자동으로 열립니다.
+
 ## 자동 실행 (cron)
 
 매일 평일 16:00에 자동 실행하려면 crontab에 등록합니다:
