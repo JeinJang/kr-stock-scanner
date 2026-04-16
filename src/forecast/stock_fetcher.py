@@ -29,10 +29,16 @@ class StockFetcher:
         if df.empty or "종가" not in df.columns:
             return [], []
 
-        dates = [
-            d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
-            for d in df.index
-        ]
+        # Sort by date ascending (KRX returns newest-first)
+        df = df.sort_index()
+
+        def _to_iso(d: object) -> str:
+            if hasattr(d, "strftime"):
+                return d.strftime("%Y-%m-%d")
+            s = str(d).replace("-", "")[:8]  # normalize to YYYYMMDD
+            return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+
+        dates = [_to_iso(d) for d in df.index]
         values = [float(v) for v in df["종가"].values]
         return dates, values
 
