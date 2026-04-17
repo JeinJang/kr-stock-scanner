@@ -10,8 +10,8 @@ from loguru import logger
 # ECOS stat codes for Korean macro indicators
 ECOS_INDICATORS = {
     "KOSPI": {"stat_code": "802Y001", "item_code": "0001000", "freq": "D"},
-    "KOSDAQ": {"stat_code": "802Y002", "item_code": "0001000", "freq": "D"},
-    "USD_KRW": {"stat_code": "731Y003", "item_code": "0000001", "freq": "D"},
+    "KOSDAQ": {"stat_code": "802Y001", "item_code": "0089000", "freq": "D"},
+    "USD_KRW": {"stat_code": "731Y003", "item_code": "0000003", "freq": "D"},
     "KR_RATE": {"stat_code": "722Y001", "item_code": "0101000", "freq": "D"},
 }
 
