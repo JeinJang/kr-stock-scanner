@@ -110,11 +110,12 @@ def run(
         for ticker, (dates, values) in stock_data.items()
     ]
 
-    # Build macro covariates from macro data (history) + macro predictions (forecast)
+    # Build macro covariates: indices only (no rates/FX — policy-driven, adds noise)
+    COV_INDICATORS = {"KOSPI", "KOSDAQ", "SP500", "NASDAQ"}
     macro_cov: dict[str, tuple[list[float], list[float]]] = {}
     macro_forecast_map = {r.ticker: r for r in macro_results}
     for indicator_name, (_, hist_values) in macro_data.items():
-        if not hist_values:
+        if indicator_name not in COV_INDICATORS or not hist_values:
             continue
         macro_r = macro_forecast_map.get(indicator_name)
         if macro_r:
