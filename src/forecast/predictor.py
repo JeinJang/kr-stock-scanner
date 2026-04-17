@@ -72,6 +72,17 @@ class Predictor:
             uncertainty=round(uncertainty, 2),
         )
 
+    def _recompile(self, *, return_backcast: bool) -> None:
+        """Recompile model with different return_backcast setting."""
+        import timesfm
+        self._model.compile(timesfm.ForecastConfig(
+            max_context=512,
+            max_horizon=self._horizon,
+            normalize_inputs=True,
+            use_continuous_quantile_head=True,
+            return_backcast=return_backcast,
+        ))
+
     def predict_batch(
         self, items: list[dict],
     ) -> list[ForecastResult]:
@@ -92,6 +103,16 @@ class Predictor:
             q_high = quantile_forecast[i, :, 9].tolist()
             results.append(self._build_result(item, forecast_values, q_low, q_high))
 
+        return results
+
+    def predict_macro(self, items: list[dict]) -> list[ForecastResult]:
+        """Predict macro indicators without return_backcast."""
+        if not items:
+            return []
+
+        self._recompile(return_backcast=False)
+        results = self.predict_batch(items)
+        self._recompile(return_backcast=True)
         return results
 
     def predict_with_covariates(

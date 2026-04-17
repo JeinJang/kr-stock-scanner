@@ -93,7 +93,7 @@ def run(
         for name, (dates, values) in macro_data.items()
         if values
     ]
-    macro_results = predictor.predict_batch(macro_items)
+    macro_results = predictor.predict_macro(macro_items)
 
     # Stock predictions with macro covariates
     name_map = {h.ticker: h.name for h in highs}
