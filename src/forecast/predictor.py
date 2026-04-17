@@ -98,9 +98,10 @@ class Predictor:
 
         results = []
         for i, item in enumerate(items):
-            forecast_values = point_forecast[i].tolist()
-            q_low = quantile_forecast[i, :, 1].tolist()
-            q_high = quantile_forecast[i, :, 9].tolist()
+            # With return_backcast=True, output includes backcasts — take last horizon
+            forecast_values = point_forecast[i][-self._horizon:].tolist()
+            q_low = quantile_forecast[i, -self._horizon:, 1].tolist()
+            q_high = quantile_forecast[i, -self._horizon:, 9].tolist()
             results.append(self._build_result(item, forecast_values, q_low, q_high))
 
         return results
@@ -181,8 +182,9 @@ class Predictor:
         results = []
         for i, item in enumerate(items):
             forecast_values = cov_forecast[i].tolist()
-            q_low = quantile_forecast[i, :, 1].tolist()
-            q_high = quantile_forecast[i, :, 9].tolist()
+            # With return_backcast=True, quantile output includes backcasts — take last horizon
+            q_low = quantile_forecast[i, -self._horizon:, 1].tolist()
+            q_high = quantile_forecast[i, -self._horizon:, 9].tolist()
             results.append(self._build_result(item, forecast_values, q_low, q_high))
 
         return results
