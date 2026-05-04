@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     naver_client_secret: str = ""
     ecos_api_key: str = ""
     fred_api_key: str = ""
+    opendart_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
@@ -50,12 +51,20 @@ class ForecastSection(BaseModel):
     report_dir: str = "reports"
 
 
+class FundamentalsSection(BaseModel):
+    years_lookback: int = 10
+    cache_ttl_days: int = 30
+    report_dir: str = "reports"
+    market_filter: list[str] = ["KOSPI", "KOSDAQ"]
+
+
 class ScannerConfig(BaseModel):
     scanner: ScannerSection = ScannerSection()
     news: NewsSection = NewsSection()
     ai: AISection = AISection()
     telegram: TelegramSection = TelegramSection()
     forecast: ForecastSection = ForecastSection()
+    fundamentals: FundamentalsSection = FundamentalsSection()
 
 
 def load_scanner_config(path: Path | None = None) -> ScannerConfig:

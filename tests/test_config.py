@@ -67,3 +67,21 @@ def test_settings_has_ecos_fred_keys():
     assert s.fred_api_key == "test-fred"
     os.environ.pop("ECOS_API_KEY", None)
     os.environ.pop("FRED_API_KEY", None)
+
+
+def test_fundamentals_config_defaults():
+    from src.config import FundamentalsSection, ScannerConfig
+    config = ScannerConfig()
+    assert config.fundamentals.years_lookback == 10
+    assert config.fundamentals.cache_ttl_days == 30
+    assert config.fundamentals.report_dir == "reports"
+    assert config.fundamentals.market_filter == ["KOSPI", "KOSDAQ"]
+
+
+def test_settings_has_opendart_key():
+    import os
+    os.environ["OPENDART_API_KEY"] = "test-dart-key"
+    from src.config import Settings
+    s = Settings()
+    assert s.opendart_api_key == "test-dart-key"
+    os.environ.pop("OPENDART_API_KEY", None)

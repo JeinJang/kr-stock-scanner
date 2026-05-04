@@ -25,3 +25,9 @@ forecast:
 schedule:
   run_time: "16:00"
   timezone: "Asia/Seoul"
+
+fundamentals:
+  years_lookback: 10
+  cache_ttl_days: 30
+  report_dir: "reports"
+  market_filter: ["KOSPI", "KOSDAQ"]
