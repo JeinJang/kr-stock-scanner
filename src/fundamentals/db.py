@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+import json
+from datetime import date
+
+from sqlalchemy import (
+    Column, Integer, String, Float, Date,
+    create_engine, delete, select,
+)
+from sqlalchemy.orm import DeclarativeBase, Session
+
+from src.fundamentals.models import FundamentalsMetrics, ScoreCard
+
+
+class FundamentalsBase(DeclarativeBase):
+    pass
+
+
+class MetricsRow(FundamentalsBase):
+    __tablename__ = "fundamentals_metrics"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String(10), nullable=False, index=True)
+    as_of_date = Column(Date, nullable=False, index=True)
+    current_ratio = Column(Float, nullable=True)
+    interest_coverage = Column(Float, nullable=True)
+    debt_ratio = Column(Float, nullable=True)
+    roe = Column(Float, nullable=True)
+    roic = Column(Float, nullable=True)
+    operating_margin = Column(Float, nullable=True)
+    revenue_cagr_3y = Column(Float, nullable=True)
+    op_income_cagr_3y = Column(Float, nullable=True)
+    ocf_to_ni_ratio = Column(Float, nullable=True)
+    fcf_positive_years = Column(Integer, nullable=True)
+    pe = Column(Float, nullable=True)
+    pb = Column(Float, nullable=True)
+    peg = Column(Float, nullable=True)
+
+
+class ScoreRow(FundamentalsBase):
+    __tablename__ = "fundamentals_scores"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String(10), nullable=False, index=True)
+    as_of_date = Column(Date, nullable=False, index=True)
+    liquidity_score = Column(Float, nullable=True)
+    profitability_score = Column(Float, nullable=True)
+    growth_score = Column(Float, nullable=True)
+    cashflow_score = Column(Float, nullable=True)
+    total_score = Column(Float, nullable=False)
+    grade = Column(String(10), nullable=False)
+    categories = Column(String(200), nullable=False)  # JSON-encoded list
+
+
+class FundamentalsDB:
+    """Persistence for derived metrics and scores."""
+
+    def __init__(self, url: str = "sqlite:///data/scanner.db"):
+        self.engine = create_engine(url)
+        FundamentalsBase.metadata.create_all(self.engine)
+
+    def save_metrics(self, metrics: list[FundamentalsMetrics]) -> None:
+        if not metrics:
+            return
+        with Session(self.engine) as session:
+            as_of = metrics[0].as_of_date
+            session.execute(delete(MetricsRow).where(MetricsRow.as_of_date == as_of))
+            for m in metrics:
+                session.add(MetricsRow(
+                    ticker=m.ticker, as_of_date=m.as_of_date,
+                    current_ratio=m.current_ratio, interest_coverage=m.interest_coverage,
+                    debt_ratio=m.debt_ratio, roe=m.roe, roic=m.roic,
+                    operating_margin=m.operating_margin,
+                    revenue_cagr_3y=m.revenue_cagr_3y, op_income_cagr_3y=m.op_income_cagr_3y,
+                    ocf_to_ni_ratio=m.ocf_to_ni_ratio, fcf_positive_years=m.fcf_positive_years,
+                    pe=m.pe, pb=m.pb, peg=m.peg,
+                ))
+            session.commit()
+
+    def save_scores(self, scores: list[ScoreCard]) -> None:
+        if not scores:
+            return
+        with Session(self.engine) as session:
+            as_of = scores[0].as_of_date
+            session.execute(delete(ScoreRow).where(ScoreRow.as_of_date == as_of))
+            for s in scores:
+                session.add(ScoreRow(
+                    ticker=s.ticker, as_of_date=s.as_of_date,
+                    liquidity_score=s.liquidity_score,
+                    profitability_score=s.profitability_score,
+                    growth_score=s.growth_score, cashflow_score=s.cashflow_score,
+                    total_score=s.total_score, grade=s.grade,
+                    categories=json.dumps(s.categories, ensure_ascii=False),
+                ))
+            session.commit()
+
+    def load_scores(self, as_of_date: date) -> list[ScoreCard]:
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(ScoreRow).where(ScoreRow.as_of_date == as_of_date)
+            ).scalars().all()
+            return [
+                ScoreCard(
+                    ticker=r.ticker, as_of_date=r.as_of_date,
+                    liquidity_score=r.liquidity_score,
+                    profitability_score=r.profitability_score,
+                    growth_score=r.growth_score, cashflow_score=r.cashflow_score,
+                    total_score=r.total_score, grade=r.grade,
+                    categories=json.loads(r.categories),
+                )
+                for r in rows
+            ]
+
+    def load_metrics(self, as_of_date: date) -> list[FundamentalsMetrics]:
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(MetricsRow).where(MetricsRow.as_of_date == as_of_date)
+            ).scalars().all()
+            return [
+                FundamentalsMetrics(
+                    ticker=r.ticker, as_of_date=r.as_of_date,
+                    current_ratio=r.current_ratio, interest_coverage=r.interest_coverage,
+                    debt_ratio=r.debt_ratio, roe=r.roe, roic=r.roic,
+                    operating_margin=r.operating_margin,
+                    revenue_cagr_3y=r.revenue_cagr_3y,
+                    op_income_cagr_3y=r.op_income_cagr_3y,
+                    ocf_to_ni_ratio=r.ocf_to_ni_ratio,
+                    fcf_positive_years=r.fcf_positive_years,
+                    pe=r.pe, pb=r.pb, peg=r.peg,
+                )
+                for r in rows
+            ]
