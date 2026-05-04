@@ -9,5 +9,7 @@ data/scanner.db
 .ruff_cache/
 dist/
 *.egg-info/
+articles/
 
 reports/
+docs/
