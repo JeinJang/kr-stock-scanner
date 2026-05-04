@@ -69,23 +69,34 @@ def compute_metrics(
     if debt_ratio_pct is not None:
         debt_ratio_pct *= 100.0
 
-    # Profitability — latest-year ROE/ROIC
+    # Profitability — 3-year average ROE per spec (B. 수익성)
     roe_avg = None
-    ni_for_roe = net_income.get(latest_year)
-    eq_for_roe = equity.get(latest_year)
-    r = _safe_div(ni_for_roe, eq_for_roe)
-    if r is not None:
-        roe_avg = r * 100.0
+    roe_years = sorted(
+        (y for y in net_income if y in equity),
+        reverse=True,
+    )[:3]
+    roe_values = [
+        net_income[y] / equity[y]
+        for y in roe_years
+        if equity[y] != 0
+    ]
+    if roe_values:
+        roe_avg = (sum(roe_values) / len(roe_values)) * 100.0
 
-    # ROIC ≈ NI / (Equity + Debt) — simplified, latest year
+    # ROIC ≈ NI / (Equity + Debt) — 3-year average per spec
     roic_avg = None
-    ni_for_roic = net_income.get(latest_year)
-    eq_for_roic = equity.get(latest_year)
-    d_for_roic = debt.get(latest_year, 0)
-    if eq_for_roic is not None and ni_for_roic is not None:
-        capital = (eq_for_roic or 0) + (d_for_roic or 0)
+    roic_years = sorted(
+        (y for y in net_income if y in equity),
+        reverse=True,
+    )[:3]
+    roic_values = []
+    for y in roic_years:
+        d = debt.get(y, 0) or 0
+        capital = (equity[y] or 0) + d
         if capital > 0:
-            roic_avg = ni_for_roic / capital * 100.0
+            roic_values.append(net_income[y] / capital)
+    if roic_values:
+        roic_avg = (sum(roic_values) / len(roic_values)) * 100.0
 
     operating_margin = None
     if latest_op is not None and latest_revenue and latest_revenue > 0:
