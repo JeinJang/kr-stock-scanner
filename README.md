@@ -136,6 +136,37 @@ python -m src.forecast.cli run --date 20260416 --horizon 40
 
 리포트는 `reports/forecast-YYYY-MM-DD.html`에 생성되며 브라우저에서 자동으로 열립니다.
 
+## 펀더멘털 스크리너 (Fundamentals)
+
+Open DART API로 KOSPI + KOSDAQ 전 상장사(~2,772개)의 재무 데이터를 수집하고, 4차원 점수와 5개 카테고리(Quality/Value/Growth/GARP/Caution)로 분류하는 스크리너.
+
+### 추가 설정
+
+`.env` 파일에 추가:
+```
+OPENDART_API_KEY=your_dart_api_key
+```
+
+[opendart.fss.or.kr](https://opendart.fss.or.kr)에서 무료 발급.
+
+### 사용법
+
+```bash
+# 캐시 사용해서 빠른 스크리닝 + HTML 리포트
+python -m src.fundamentals.cli run
+
+# 데이터 강제 갱신 후 스크리닝
+python -m src.fundamentals.cli run --refresh
+
+# 데이터 갱신만 (분석 없이)
+python -m src.fundamentals.cli refresh
+
+# 특정 종목 스코어카드 조회
+python -m src.fundamentals.cli show 005930
+```
+
+리포트는 `reports/fundamentals-YYYY-MM-DD.html`에 생성되며 브라우저에서 자동으로 열립니다.
+
 ## 자동 실행 (cron)
 
 매일 평일 16:00에 자동 실행하려면 crontab에 등록합니다:
