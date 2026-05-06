@@ -20,10 +20,30 @@ REPORT_CODES = {
     "11014": "3분기보고서",
 }
 
-# Map DART account_nm → our internal account names (use as-is for now)
-ACCOUNT_WHITELIST = {
-    "매출액", "영업이익", "당기순이익", "자산총계", "부채총계",
-    "자본총계", "이익잉여금", "유동자산", "유동부채",
+# DART returns variant account names; normalize them to canonical forms.
+# Map DART account_nm → our internal canonical name.
+ACCOUNT_NORMALIZE = {
+    # 매출 — 매출액, 영업수익 등
+    "매출액": "매출액",
+    "영업수익": "매출액",
+    "수익(매출액)": "매출액",
+    # 영업이익
+    "영업이익": "영업이익",
+    "영업이익(손실)": "영업이익",
+    # 순이익 — 사업/반기/분기/연결 변형
+    "당기순이익": "당기순이익",
+    "당기순이익(손실)": "당기순이익",
+    "반기순이익": "당기순이익",
+    "반기순이익(손실)": "당기순이익",
+    "분기순이익": "당기순이익",
+    "분기순이익(손실)": "당기순이익",
+    # 재무상태표
+    "자산총계": "자산총계",
+    "부채총계": "부채총계",
+    "자본총계": "자본총계",
+    "이익잉여금": "이익잉여금",
+    "유동자산": "유동자산",
+    "유동부채": "유동부채",
 }
 
 
@@ -132,7 +152,8 @@ class DartFetcher:
                     ok_count += 1
                     for row in data.get("list", []):
                         account_nm = row.get("account_nm", "")
-                        if account_nm not in ACCOUNT_WHITELIST:
+                        canonical = ACCOUNT_NORMALIZE.get(account_nm)
+                        if canonical is None:
                             continue
 
                         amount_str = row.get("thstrm_amount", "0").replace(",", "")
@@ -145,7 +166,7 @@ class DartFetcher:
                             corp_code=row.get("corp_code", ""),
                             year=year,
                             quarter=report_to_quarter[report_code],
-                            account=account_nm,
+                            account=canonical,
                             value=value,
                         ))
 

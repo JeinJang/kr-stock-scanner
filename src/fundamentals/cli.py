@@ -6,6 +6,7 @@ import webbrowser
 from datetime import date
 
 import typer
+from loguru import logger
 from rich.console import Console
 
 from src.config import Settings, load_scanner_config
@@ -32,6 +33,9 @@ def _make_pipeline(settings: Settings, ttl_days: int):
 def _load_market_data(settings: Settings) -> tuple[dict[str, float], dict[str, str]]:
     """Load latest market caps and market info (KOSPI/KOSDAQ) from KRX.
 
+    Searches back up to 10 days to find a trading day with non-zero data,
+    skipping weekends and Korean holidays automatically.
+
     Returns:
         (market_caps: ticker -> 시가총액, market_map: ticker -> "KOSPI"|"KOSDAQ")
     """
@@ -41,18 +45,35 @@ def _load_market_data(settings: Settings) -> tuple[dict[str, float], dict[str, s
     client = create_krx_client(
         krx_id=settings.krx_id, krx_pw=settings.krx_pw, krx_api_key=settings.krx_api_key,
     )
-    end = datetime.now()
-    target_date = (end - timedelta(days=1)).strftime("%Y%m%d")
+
     market_caps: dict[str, float] = {}
     market_map: dict[str, str] = {}
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            df = client.get_market_cap_by_ticker(target_date, market=market)
-            for ticker, row in df.iterrows():
-                market_caps[ticker] = float(row["시가총액"])
-                market_map[ticker] = market
-        except Exception:
-            continue
+
+    # Try yesterday first; walk back up to 10 days if data is empty/zero
+    end = datetime.now()
+    for offset in range(1, 11):
+        candidate = end - timedelta(days=offset)
+        if candidate.weekday() >= 5:
+            continue  # skip weekends
+        target_date = candidate.strftime("%Y%m%d")
+
+        attempt_caps: dict[str, float] = {}
+        attempt_market: dict[str, str] = {}
+        for market in ["KOSPI", "KOSDAQ"]:
+            try:
+                df = client.get_market_cap_by_ticker(target_date, market=market)
+                for ticker, row in df.iterrows():
+                    cap = float(row["시가총액"])
+                    if cap > 0:
+                        attempt_caps[ticker] = cap
+                        attempt_market[ticker] = market
+            except Exception:
+                continue
+
+        if attempt_caps:
+            logger.info(f"KRX market data loaded from {target_date} ({len(attempt_caps)} tickers)")
+            return attempt_caps, attempt_market
+
     return market_caps, market_map
 
 
