@@ -100,9 +100,17 @@ class DartFetcher:
         # Quarter mapping
         report_to_quarter = {"11011": 0, "11012": 2, "11013": 1, "11014": 3}
 
+        total_batches = sum(
+            (len(corp_codes) + 99) // 100 for _ in years for _ in report_codes
+        )
+        batch_idx = 0
+        ok_count = 0
+        skip_count = 0
+
         for year in years:
             for report_code in report_codes:
                 for batch_start in range(0, len(corp_codes), 100):
+                    batch_idx += 1
                     batch = corp_codes[batch_start:batch_start + 100]
                     params = {
                         "corp_code": ",".join(batch),
@@ -111,9 +119,17 @@ class DartFetcher:
                     }
                     data = await self._client.get("/api/fnlttMultiAcnt.json", params=params)
 
-                    if data.get("status") != "000":
-                        continue  # no data or error
+                    status = data.get("status")
+                    if status != "000":
+                        skip_count += 1
+                        if batch_idx % 50 == 0 or status == "999":
+                            logger.info(
+                                f"  [{batch_idx}/{total_batches}] year={year} skip "
+                                f"(status={status}: {data.get('message', '')[:60]})"
+                            )
+                        continue
 
+                    ok_count += 1
                     for row in data.get("list", []):
                         account_nm = row.get("account_nm", "")
                         if account_nm not in ACCOUNT_WHITELIST:
@@ -132,6 +148,12 @@ class DartFetcher:
                             account=account_nm,
                             value=value,
                         ))
+
+                    if batch_idx % 20 == 0:
+                        logger.info(
+                            f"  [{batch_idx}/{total_batches}] ok={ok_count} skip={skip_count} "
+                            f"statements={len(statements)}"
+                        )
 
         logger.info(f"Fetched {len(statements)} financial statement entries")
         return statements
