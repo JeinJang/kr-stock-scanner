@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>펀더멘털 스크리너 — {{ as_of_date }}</title>
+  <script>{{ plotly_js }}</script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+    header { background: linear-gradient(135deg, #2c3e50, #3498db); color: #fff; padding: 2rem; text-align: center; }
+    header h1 { font-size: 2rem; margin-bottom: 0.3rem; }
+    .container { max-width: 1400px; margin: 2rem auto; padding: 0 1.5rem; }
+    section { margin-bottom: 3rem; }
+    h2 { font-size: 1.4rem; color: #2c3e50; border-left: 4px solid #3498db; padding-left: 0.75rem; margin-bottom: 1.5rem; }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .filter-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .filter-row input, .filter-row select { padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { background: #eaf0fb; padding: 0.6rem; text-align: left; cursor: pointer; user-select: none; }
+    th:hover { background: #d6e2f5; }
+    td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #eceff1; }
+    tr:hover td { background: #f8fafc; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-right: 0.2rem; }
+    .badge-Quality { background: #d6e9ff; color: #1864c0; }
+    .badge-Value { background: #d4f4dd; color: #1e7e3a; }
+    .badge-Growth { background: #ffd6d6; color: #c0392b; }
+    .badge-GARP { background: #e6d6ff; color: #6a1ec0; }
+    .badge-Caution { background: #e0e0e0; color: #555; }
+    .grade { font-size: 0.9rem; color: #f39c12; }
+    .top-card { background: #fff; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .top-card .name { font-weight: 600; color: #2c3e50; }
+    .top-card .ticker { color: #888; font-size: 0.8rem; margin-left: 0.3rem; }
+    .top-card .score { float: right; color: #3498db; font-weight: 600; }
+    .grid-2x2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+    .chart-container { width: 100%; height: 400px; }
+    @media (max-width: 800px) { .grid-2x2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>📊 펀더멘털 스크리너</h1>
+  <p>분석 기준일: {{ as_of_date }} &nbsp;|&nbsp; 분석 종목: {{ total_count }}개</p>
+</header>
+
+<div class="container">
+
+  <!-- Section 1: Market Overview -->
+  <section>
+    <h2>1. 시장 개요</h2>
+    <div class="card">
+      <div id="category-donut" class="chart-container" style="height:300px;"></div>
+    </div>
+  </section>
+
+  <!-- Section 2: Integrated Ranking (all stocks) -->
+  <section>
+    <h2>2. 통합 랭킹 (전체 {{ total_count }}개)</h2>
+    <div class="card">
+      <div class="filter-row">
+        <input type="text" id="search-box" placeholder="종목명/티커 검색..." />
+        <select id="market-filter">
+          <option value="">전체 시장</option>
+          <option value="KOSPI">KOSPI</option>
+          <option value="KOSDAQ">KOSDAQ</option>
+        </select>
+        <select id="category-filter">
+          <option value="">전체 카테고리</option>
+          <option value="Quality">Quality</option>
+          <option value="Value">Value</option>
+          <option value="Growth">Growth</option>
+          <option value="GARP">GARP</option>
+          <option value="Caution">Caution</option>
+        </select>
+        <input type="number" id="min-score" placeholder="최소 점수" min="0" max="100" />
+      </div>
+      <div style="overflow-x:auto; max-height:600px; overflow-y:auto;">
+        <table id="ranking-table">
+          <thead>
+            <tr>
+              <th data-sort="rank">#</th>
+              <th data-sort="ticker">티커</th>
+              <th data-sort="name">종목명</th>
+              <th data-sort="market">시장</th>
+              <th data-sort="grade">등급</th>
+              <th data-sort="total_score">종합점수</th>
+              <th>카테고리</th>
+              <th data-sort="pe">P/E</th>
+              <th data-sort="pb">P/B</th>
+              <th data-sort="roe">ROE</th>
+            </tr>
+          </thead>
+          <tbody id="ranking-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3: Category Top 10 -->
+  <section>
+    <h2>3. 카테고리별 Top 10</h2>
+    <div class="grid-2x2">
+      {% for cat in ['Quality', 'Value', 'Growth', 'GARP'] %}
+      <div class="card">
+        <h3>{{ cat }}</h3>
+        <div id="top-{{ cat }}"></div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Section 4: Risk Scatter -->
+  <section>
+    <h2>4. 4차원 점수 분포</h2>
+    <div class="card">
+      <div id="dist-scatter" class="chart-container"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const stockData = {{ stock_data | tojson }};
+const categoryCounts = {{ category_counts | tojson }};
+
+// Section 1: Donut chart
+Plotly.newPlot('category-donut', [{
+  values: Object.values(categoryCounts),
+  labels: Object.keys(categoryCounts),
+  type: 'pie',
+  hole: 0.5,
+  marker: {colors: ['#1864c0', '#1e7e3a', '#c0392b', '#6a1ec0', '#999']},
+}], {margin: {t: 10, b: 10, l: 10, r: 10}, height: 280}, {responsive: true});
+
+// Section 2: Ranking table with filters
+function renderTable(data) {
+  const tbody = document.getElementById('ranking-tbody');
+  tbody.innerHTML = '';
+  data.forEach((s, i) => {
+    const cats = (s.categories || []).map(c => `<span class="badge badge-${c}">${c}</span>`).join('');
+    const fmt = (v, d=2) => v == null ? '-' : Number(v).toFixed(d);
+    const row = `<tr>
+      <td>${i + 1}</td>
+      <td>${s.ticker}</td>
+      <td>${s.name}</td>
+      <td>${s.market}</td>
+      <td class="grade">${s.grade}</td>
+      <td><b>${fmt(s.total_score, 1)}</b></td>
+      <td>${cats}</td>
+      <td>${fmt(s.pe)}</td>
+      <td>${fmt(s.pb)}</td>
+      <td>${fmt(s.roe, 1)}%</td>
+    </tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+  });
+}
+
+let sortedData = [...stockData].sort((a, b) => b.total_score - a.total_score);
+renderTable(sortedData);
+
+function applyFilters() {
+  const search = document.getElementById('search-box').value.toLowerCase();
+  const market = document.getElementById('market-filter').value;
+  const cat = document.getElementById('category-filter').value;
+  const minScore = parseFloat(document.getElementById('min-score').value) || 0;
+  const filtered = sortedData.filter(s => {
+    if (search && !(s.name.toLowerCase().includes(search) || s.ticker.includes(search))) return false;
+    if (market && s.market !== market) return false;
+    if (cat && !(s.categories || []).includes(cat)) return false;
+    if (s.total_score < minScore) return false;
+    return true;
+  });
+  renderTable(filtered);
+}
+
+['search-box', 'market-filter', 'category-filter', 'min-score'].forEach(id => {
+  document.getElementById(id).addEventListener('input', applyFilters);
+});
+
+// Section 3: Top 10 per category
+['Quality', 'Value', 'Growth', 'GARP'].forEach(cat => {
+  const top = stockData
+    .filter(s => (s.categories || []).includes(cat))
+    .sort((a, b) => b.total_score - a.total_score)
+    .slice(0, 10);
+  const html = top.map(s =>
+    `<div class="top-card"><span class="name">${s.name}</span><span class="ticker">${s.ticker}</span><span class="score">${s.total_score.toFixed(1)}</span></div>`
+  ).join('');
+  document.getElementById('top-' + cat).innerHTML = html || '<div style="color:#999;">해당 종목 없음</div>';
+});
+
+// Section 4: Distribution scatter
+const stab_prof = stockData.map(s => (s.liquidity_score || 0) + (s.profitability_score || 0));
+const growth = stockData.map(s => s.growth_score || 0);
+const colors = stockData.map(s => {
+  const c = (s.categories || [])[0];
+  return {Quality: '#1864c0', Value: '#1e7e3a', Growth: '#c0392b', GARP: '#6a1ec0', Caution: '#999'}[c] || '#aaa';
+});
+const labels = stockData.map(s => s.name + ' (' + s.ticker + ')');
+Plotly.newPlot('dist-scatter', [{
+  x: stab_prof, y: growth,
+  mode: 'markers', text: labels,
+  marker: {size: 8, color: colors, opacity: 0.7},
+  type: 'scatter',
+}], {
+  xaxis: {title: '안정성 + 수익성'},
+  yaxis: {title: '성장성'},
+  margin: {t: 20, b: 50, l: 60, r: 20},
+  height: 400,
+}, {responsive: true});
+</script>
+</body>
+</html>
