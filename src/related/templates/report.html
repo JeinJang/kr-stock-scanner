@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>연관 기업 — {{ root_name }} ({{ root_ticker }})</title>
+  <script>{{ plotly_js }}</script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f5; color:#333; }
+    header { background: linear-gradient(135deg,#2c3e50,#3498db); color:#fff; padding:1.5rem; text-align:center; }
+    header h1 { font-size:1.6rem; }
+    .container { max-width:1400px; margin:1.5rem auto; padding:0 1.5rem; }
+    .card { background:#fff; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.08); padding:1.5rem; margin-bottom:1.5rem; }
+    h2 { font-size:1.25rem; color:#2c3e50; border-left:4px solid #3498db; padding-left:0.75rem; margin-bottom:1rem; }
+    #graph { width:100%; height:600px; }
+    table { width:100%; border-collapse:collapse; font-size:0.88rem; }
+    th { background:#eaf0fb; padding:0.55rem; text-align:left; }
+    td { padding:0.5rem 0.6rem; border-bottom:1px solid #eceff1; vertical-align:top; }
+    .grade { color:#f39c12; font-size:0.85rem; }
+    .ev { color:#666; font-size:0.82rem; }
+    .rel-Supplier { color:#1e8449; font-weight:600; }
+    .rel-Customer { color:#1864c0; font-weight:600; }
+    .rel-Competitor { color:#c0392b; font-weight:600; }
+    .rel-Affiliate { color:#6a1ec0; font-weight:600; }
+    .rel-Subsidiary { color:#d35400; font-weight:600; }
+    .meta { font-size:0.8rem; color:#888; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>🔗 연관 기업 — {{ root_name }} <span style="opacity:.7">({{ root_ticker }})</span></h1>
+  <p>{{ root_market }} &nbsp;|&nbsp; depth={{ depth }} &nbsp;|&nbsp; 노드 {{ node_count }}개 / 엣지 {{ edge_count }}개</p>
+</header>
+<div class="container">
+
+  <div class="card">
+    <h2>네트워크 그래프</h2>
+    <div id="graph"></div>
+  </div>
+
+  {% for rel, items in grouped.items() %}
+  <div class="card">
+    <h2><span class="rel-{{ rel }}">{{ rel }}</span> ({{ items|length }})</h2>
+    <table>
+      <thead><tr><th>종목명</th><th>티커</th><th>등급</th><th>근거</th></tr></thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td>{{ it.name }}</td>
+          <td>{{ it.ticker or '-' }}</td>
+          <td class="grade">{{ it.grade or '' }}</td>
+          <td class="ev">{{ it.evidence }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+
+  <div class="card meta">
+    <div>데이터: DART 사업보고서 (접수번호 {{ rcept_no }})</div>
+    <div>생성일: {{ as_of_date }}</div>
+  </div>
+
+</div>
+
+<script>
+const graphData = {{ graph_data | tojson }};
+(function(){
+  const nodes = graphData.nodes;
+  const edges = graphData.edges;
+  const relColors = {Supplier:'#1e8449', Customer:'#1864c0', Competitor:'#c0392b', Affiliate:'#6a1ec0', Subsidiary:'#d35400'};
+  const edgeTraces = {};
+  edges.forEach(e => {
+    if (!edgeTraces[e.relation]) {
+      edgeTraces[e.relation] = {x:[], y:[], mode:'lines', name:e.relation, line:{color:relColors[e.relation]||'#999', width:1.5}, hoverinfo:'text', text:[]};
+    }
+    const t = edgeTraces[e.relation];
+    t.x.push(e.x0, e.x1, null);
+    t.y.push(e.y0, e.y1, null);
+    t.text.push(e.evidence);
+  });
+  const nodeTrace = {
+    x: nodes.map(n=>n.x), y: nodes.map(n=>n.y),
+    mode:'markers+text', text: nodes.map(n=>n.label), textposition:'top center',
+    marker:{
+      color: nodes.map(n=>n.color),
+      size: nodes.map(n=>n.size),
+      line:{color:'#fff', width:1.5},
+    },
+    hoverinfo:'text',
+    hovertext: nodes.map(n=>n.hover),
+    name:'기업',
+  };
+  Plotly.newPlot('graph', [...Object.values(edgeTraces), nodeTrace], {
+    showlegend:true,
+    margin:{t:20,b:20,l:20,r:20},
+    xaxis:{visible:false}, yaxis:{visible:false},
+    plot_bgcolor:'#fafafa',
+  }, {responsive:true, displayModeBar:false});
+})();
+</script>
+
+</body>
+</html>
