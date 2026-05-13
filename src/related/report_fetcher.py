@@ -29,11 +29,22 @@ class ReportFetcher:
         self._client = client
 
     async def latest_rcept_no(self, corp_code: str) -> str | None:
-        """Return rcept_no of the latest 사업보고서 for this corp, or None."""
+        """Return rcept_no of the latest 사업보고서 for this corp, or None.
+
+        DART list.json requires bgn_de/end_de; without them it returns no data.
+        We search the last 2 years to safely cover the latest annual report
+        (filed within 90 days of fiscal year end).
+        """
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        bgn = (today - timedelta(days=730)).strftime("%Y%m%d")
+        end = today.strftime("%Y%m%d")
         data = await self._client.get(
             "/api/list.json",
             params={
                 "corp_code": corp_code,
+                "bgn_de": bgn,
+                "end_de": end,
                 "pblntf_detail_ty": "A001",
                 "page_count": "20",
                 "sort": "date",
