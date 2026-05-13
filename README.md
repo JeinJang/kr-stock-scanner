@@ -167,6 +167,39 @@ python -m src.fundamentals.cli show 005930
 
 리포트는 `reports/fundamentals-YYYY-MM-DD.html`에 생성되며 브라우저에서 자동으로 열립니다.
 
+## 연관 기업 발굴 (Related)
+
+DART 사업보고서를 GPT로 분석하여 공급망/고객사/경쟁사/계열사/자회사 관계를 추출하고, 인터랙티브 네트워크 그래프 HTML 리포트로 시각화합니다.
+
+### 사전 조건
+
+DART 데이터(corp_info)가 먼저 적재되어 있어야 합니다:
+
+```bash
+python -m src.fundamentals.cli refresh
+```
+
+### 사용법
+
+```bash
+# 단일 종목 (1-hop 기본)
+python -m src.related.cli show 042700
+
+# 2-hop 확장
+python -m src.related.cli show 042700 --depth 2
+
+# 강제 재추출 (사업보고서 미변경에도 GPT 재호출)
+python -m src.related.cli show 042700 --refresh
+
+# 명시적 티커 리스트 배치 추출
+python -m src.related.cli batch --tickers 005930,000660,042700
+
+# 저장된 관계 통계
+python -m src.related.cli stats
+```
+
+리포트는 `reports/related-<ticker>-YYYY-MM-DD.html`에 생성되며 브라우저에서 자동으로 열립니다. 사업보고서 접수번호(`rcept_no`) 기준으로 캐싱되므로 새 보고서가 나올 때까지 GPT 재호출이 없습니다.
+
 ## 자동 실행 (cron)
 
 매일 평일 16:00에 자동 실행하려면 crontab에 등록합니다:
