@@ -31,3 +31,8 @@ fundamentals:
   cache_ttl_days: 30
   report_dir: "reports"
   market_filter: ["KOSPI", "KOSDAQ"]
+
+related:
+  model: "gpt-5-nano"
+  report_dir: "reports"
+  max_tokens_per_section: 8000

@@ -58,6 +58,12 @@ class FundamentalsSection(BaseModel):
     market_filter: list[str] = ["KOSPI", "KOSDAQ"]
 
 
+class RelatedSection(BaseModel):
+    model: str = "gpt-5-nano"
+    report_dir: str = "reports"
+    max_tokens_per_section: int = 8000
+
+
 class ScannerConfig(BaseModel):
     scanner: ScannerSection = ScannerSection()
     news: NewsSection = NewsSection()
@@ -65,6 +71,7 @@ class ScannerConfig(BaseModel):
     telegram: TelegramSection = TelegramSection()
     forecast: ForecastSection = ForecastSection()
     fundamentals: FundamentalsSection = FundamentalsSection()
+    related: RelatedSection = RelatedSection()
 
 
 def load_scanner_config(path: Path | None = None) -> ScannerConfig:

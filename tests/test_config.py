@@ -85,3 +85,11 @@ def test_settings_has_opendart_key():
     s = Settings()
     assert s.opendart_api_key == "test-dart-key"
     os.environ.pop("OPENDART_API_KEY", None)
+
+
+def test_related_config_defaults():
+    from src.config import RelatedSection, ScannerConfig
+    config = ScannerConfig()
+    assert config.related.model == "gpt-5-nano"
+    assert config.related.report_dir == "reports"
+    assert config.related.max_tokens_per_section == 8000
