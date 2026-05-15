@@ -32,6 +32,21 @@ class FundamentalsMetrics(BaseModel):
     pb: float | None = None
     peg: float | None = None
 
+    # Share-based derived (new)
+    eps: float | None = None
+    bps: float | None = None
+    psr: float | None = None
+
+    # Cashflow absolutes & ratios (new)
+    ocf: float | None = None                   # 억원
+    fcf: float | None = None                   # 억원
+    capex_to_revenue: float | None = None      # %
+
+    # Dividend (new)
+    dividend_yield: float | None = None        # %
+    payout_ratio: float | None = None          # %
+    consecutive_dividend_years: int | None = None
+
 
 class ScoreCard(BaseModel):
     """4-dimension scores plus total and categories."""
