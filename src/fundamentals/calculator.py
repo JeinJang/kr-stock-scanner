@@ -132,6 +132,22 @@ def compute_metrics(
     ocf_to_ni_ratio = _avg_ocf_to_ni(ocf_by_year, net_income, years=3)
     fcf_positive_years = _count_fcf_positive(ocf_by_year, capex_by_year, years=5)
 
+    dividend_yield = None
+    payout_ratio = None
+    consecutive_dividend_years = None
+
+    if dividend_by_year:
+        # absolute dividend total in 원 (DART negative-sign normalize)
+        latest_div = abs(dividend_by_year.get(latest_year, 0.0))
+
+        if market_cap_now is not None and market_cap_now > 0 and latest_year in dividend_by_year:
+            dividend_yield = (latest_div / market_cap_now) * 100.0
+
+        if latest_ni is not None and latest_ni > 0 and latest_year in dividend_by_year:
+            payout_ratio = (latest_div / latest_ni) * 100.0
+
+        consecutive_dividend_years = _count_consecutive_dividends(dividend_by_year)
+
     return FundamentalsMetrics(
         ticker=ticker, as_of_date=as_of,
         current_ratio=current_ratio, debt_ratio=debt_ratio_pct,
@@ -141,6 +157,8 @@ def compute_metrics(
         pe=pe, pb=pb, peg=peg,
         eps=eps, bps=bps, psr=psr,
         ocf=ocf, fcf=fcf, capex_to_revenue=capex_to_revenue,
+        dividend_yield=dividend_yield, payout_ratio=payout_ratio,
+        consecutive_dividend_years=consecutive_dividend_years,
     )
 
 
@@ -194,4 +212,17 @@ def _count_fcf_positive(ocf: dict[int, float], capex: dict[int, float], years: i
         if y in ocf and y in capex:
             if (ocf[y] - capex[y]) > 0:
                 count += 1
+    return count
+
+
+def _count_consecutive_dividends(div: dict[int, float]) -> int:
+    """From latest year backward, count years where |dividend| > 0. Stops on first zero."""
+    if not div:
+        return 0
+    count = 0
+    for y in sorted(div.keys(), reverse=True):
+        if abs(div[y]) > 0:
+            count += 1
+        else:
+            break
     return count

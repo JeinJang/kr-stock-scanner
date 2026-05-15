@@ -246,3 +246,59 @@ def test_cashflow_metrics_null_when_missing():
     assert m.capex_to_revenue is None
     assert m.ocf_to_ni_ratio is None
     assert m.fcf_positive_years is None
+
+
+# ---------------------------------------------------------------------------
+# New tests for dividend-derived metrics (yield, payout ratio, consecutive years)
+# ---------------------------------------------------------------------------
+
+def test_dividend_yield_uses_market_cap_now():
+    statements = [
+        _stmt(2024, "당기순이익", 100_000_000_000),
+        _stmt(2024, "자본총계", 1),
+        _stmt(2024, "배당총액", 20_000_000_000),
+    ]
+    market = [_my(2025, mc=2_000_000_000_000, shares=10)]
+    m = compute_metrics("X", "C1", statements, market_yearly=market, as_of=date(2026, 5, 15))
+    assert m.dividend_yield == 1.0   # 20B / 2T * 100
+
+
+def test_payout_ratio_uses_latest_year_ni():
+    statements = [
+        _stmt(2024, "당기순이익", 100_000_000_000),
+        _stmt(2024, "자본총계", 1),
+        _stmt(2024, "배당총액", 25_000_000_000),
+    ]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.payout_ratio == 25.0
+
+
+def test_payout_ratio_null_when_ni_negative():
+    statements = [
+        _stmt(2024, "당기순이익", -100_000_000_000),
+        _stmt(2024, "자본총계", 1),
+        _stmt(2024, "배당총액", 5_000_000_000),
+    ]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.payout_ratio is None
+
+
+def test_consecutive_dividend_years_counts_from_latest_backward():
+    statements = [_stmt(2024, "자본총계", 1)]
+    # 2020: paid, 2021: skipped (zero), 2022/2023/2024: paid -> consecutive = 3 (only count from latest)
+    for y, total in [(2020, 100), (2021, 0), (2022, 100), (2023, 100), (2024, 100)]:
+        statements.append(_stmt(y, "배당총액", total))
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.consecutive_dividend_years == 3
+
+
+def test_consecutive_dividend_years_zero_when_no_dividends():
+    statements = [_stmt(2024, "자본총계", 1), _stmt(2024, "배당총액", 0)]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.consecutive_dividend_years == 0
+
+
+def test_consecutive_dividend_years_null_when_no_dividend_data():
+    statements = [_stmt(2024, "자본총계", 1)]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.consecutive_dividend_years is None
