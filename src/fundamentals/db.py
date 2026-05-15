@@ -60,10 +60,15 @@ class ScoreRow(FundamentalsBase):
 
 
 def _migrate_add_enrichment_columns(engine) -> None:
-    """Idempotent ALTER for the 9 enrichment columns. Safe to run repeatedly."""
+    """Idempotent ALTER for the 9 enrichment columns. Safe to run repeatedly
+    and safe to call even if the table does not exist yet."""
     from sqlalchemy import inspect
     insp = inspect(engine)
-    existing = {col["name"] for col in insp.get_columns("fundamentals_metrics")}
+    try:
+        existing = {col["name"] for col in insp.get_columns("fundamentals_metrics")}
+    except Exception:
+        # Table doesn't exist yet; create_all will create it with the columns directly.
+        return
     to_add = [
         ("eps", "FLOAT"),
         ("bps", "FLOAT"),

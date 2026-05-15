@@ -24,3 +24,12 @@ def test_save_load_round_trips_new_fields(tmp_path):
     assert r.dividend_yield == 1.8
     assert r.payout_ratio == 22.5
     assert r.consecutive_dividend_years == 7
+
+
+def test_migration_helper_handles_missing_table(tmp_path):
+    """If table doesn't exist yet, migration returns silently (no exception)."""
+    from sqlalchemy import create_engine
+    from src.fundamentals.db import _migrate_add_enrichment_columns
+    engine = create_engine(f"sqlite:///{tmp_path/'empty.db'}")
+    # No create_all run; table doesn't exist
+    _migrate_add_enrichment_columns(engine)  # must not raise
