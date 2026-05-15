@@ -65,3 +65,16 @@ async def test_fetch_financials_batches_by_100():
 
     # 250 corps / 100 batch * 1 year * 1 report = 3 calls
     assert mock_client.get.call_count == 3
+
+
+from src.dart.fetcher import ACCOUNT_NORMALIZE
+
+
+def test_account_normalize_includes_cashflow_and_dividend():
+    # OCF
+    assert ACCOUNT_NORMALIZE.get("영업활동 현금흐름") == "영업활동현금흐름"
+    assert ACCOUNT_NORMALIZE.get("영업활동으로 인한 현금흐름") == "영업활동현금흐름"
+    # CAPEX
+    assert ACCOUNT_NORMALIZE.get("유형자산의 취득") == "유형자산취득"
+    # Dividend (paid)
+    assert ACCOUNT_NORMALIZE.get("배당금지급") == "배당총액"
