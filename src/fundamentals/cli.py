@@ -30,6 +30,20 @@ def _make_pipeline(settings: Settings, ttl_days: int):
     return Pipeline(cache=cache, fetcher=fetcher, ttl_days=ttl_days, fundamentals_db=db)
 
 
+def _build_market_pipeline(settings: Settings):
+    """Create MarketDataPipeline + MarketDB pair using project's KRX client."""
+    from src.krx_client import create_krx_client
+    from src.market_data.db import MarketDB
+    from src.market_data.pipeline import MarketDataPipeline
+
+    client = create_krx_client(
+        krx_id=settings.krx_id, krx_pw=settings.krx_pw, krx_api_key=settings.krx_api_key,
+    )
+    db = MarketDB()
+    pipeline = MarketDataPipeline(db=db, client=client)
+    return pipeline, db
+
+
 def _load_market_data(settings: Settings) -> tuple[dict[str, float], dict[str, str]]:
     """Load latest market caps and market info (KOSPI/KOSDAQ) from KRX.
 
@@ -80,6 +94,11 @@ def _load_market_data(settings: Settings) -> tuple[dict[str, float], dict[str, s
 @app.command()
 def run(
     refresh: bool = typer.Option(False, "--refresh", help="Force refresh of DART data"),
+    skip_dart: bool = typer.Option(False, "--skip-dart", help="Skip DART refresh"),
+    skip_market: bool = typer.Option(False, "--skip-market", help="Skip pykrx-equivalent market data refresh"),
+    years_opt: list[int] | None = typer.Option(
+        None, "--years", help="Specific years to fetch (default: lookback range)"
+    ),
 ):
     """Run the full screening pipeline and generate report."""
     settings = Settings()
@@ -89,29 +108,66 @@ def run(
 
     pipeline = _make_pipeline(settings, ttl_days=config.fundamentals.cache_ttl_days)
 
-    # Step 1: Load KRX market data (caps + market labels)
-    console.print("[dim]1/4 KRX 시장 데이터 수집 중...[/dim]")
-    market_caps, market_map = _load_market_data(settings)
-    console.print(f"[dim]   {len(market_caps)}개 종목 시가총액/시장 정보 수집[/dim]")
+    # Step 1: KRX 시장 라벨 (KOSPI/KOSDAQ) 수집 — DART 호출에 필요
+    console.print("[dim]1/5 KRX 시장 라벨 수집 중...[/dim]")
+    market_caps_now, market_map = _load_market_data(settings)
+    console.print(f"[dim]   {len(market_map)}개 종목 시장 정보 수집[/dim]")
 
-    # Step 2: Refresh DART data (using KRX market_map for accurate market labels)
-    console.print("[dim]2/4 DART 데이터 확인/수집 중...[/dim]")
-    years = list(range(date.today().year - config.fundamentals.years_lookback, date.today().year))
-    asyncio.run(pipeline.refresh_data(
-        force=refresh, years=years,
-        markets=config.fundamentals.market_filter,
-        market_map=market_map,
-    ))
+    # Years range (current year inclusive for in-progress year)
+    if years_opt:
+        years = years_opt
+    else:
+        end_year = date.today().year
+        years = list(range(end_year - config.fundamentals.years_lookback, end_year + 1))
 
-    # Step 3: Compute metrics + scores
-    console.print("[dim]3/4 지표 계산 + 점수 산정 중...[/dim]")
+    # Step 2: DART refresh
+    if not skip_dart:
+        console.print("[dim]2/5 DART 데이터 확인/수집 중...[/dim]")
+        asyncio.run(pipeline.refresh_data(
+            force=refresh, years=years,
+            markets=config.fundamentals.market_filter,
+            market_map=market_map,
+        ))
+    else:
+        console.print("[dim]2/5 DART skip[/dim]")
+
+    # Step 3: pykrx-equivalent 연도별 시장 데이터 refresh
+    market_yearly_map: dict[str, list] = {}
+    if not skip_market:
+        console.print(f"[dim]3/5 KRX 연도별 시장 데이터 수집 중 (years={years})...[/dim]")
+        market_pipeline, market_db = _build_market_pipeline(settings)
+
+        # corps loaded from DART cache so we have corp_code↔ticker mapping
+        corps = pipeline._cache.load_corp_info(markets=config.fundamentals.market_filter)
+        corp_code_map = {c.ticker: c.corp_code for c in corps}
+        tickers = list(corp_code_map.keys())
+
+        report = market_pipeline.refresh(
+            years=years, tickers=tickers, corp_code_map=corp_code_map,
+        )
+        console.print(
+            f"[dim]   완료: {report.successful_rows}행, {report.duration_seconds:.1f}s[/dim]"
+        )
+        market_yearly_map = market_db.load_all()
+    else:
+        console.print("[dim]3/5 시장 데이터 skip[/dim]")
+        # Still try to load existing rows from DB so compute_all has data
+        from src.market_data.db import MarketDB
+        try:
+            market_yearly_map = MarketDB().load_all()
+        except Exception:
+            pass
+
+    # Step 4: Compute metrics + scores
+    console.print("[dim]4/5 지표 계산 + 점수 산정 중...[/dim]")
     metrics, scores = pipeline.compute_all(
+        market_yearly_map=market_yearly_map,
         markets=config.fundamentals.market_filter,
     )
     console.print(f"[dim]   완료: {len(scores)}개 종목 점수 산정[/dim]")
 
-    # Step 4: Generate report
-    console.print("[dim]4/4 HTML 리포트 생성 중...[/dim]")
+    # Step 5: Generate report
+    console.print("[dim]5/5 HTML 리포트 생성 중...[/dim]")
     corps = pipeline._cache.load_corp_info(markets=config.fundamentals.market_filter)
     name_map = {c.ticker: c.name for c in corps}
     rendered_market_map = {c.ticker: c.market for c in corps}
