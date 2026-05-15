@@ -106,7 +106,6 @@ def run(
     # Step 3: Compute metrics + scores
     console.print("[dim]3/4 지표 계산 + 점수 산정 중...[/dim]")
     metrics, scores = pipeline.compute_all(
-        market_caps=market_caps,
         markets=config.fundamentals.market_filter,
     )
     console.print(f"[dim]   완료: {len(scores)}개 종목 점수 산정[/dim]")

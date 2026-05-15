@@ -8,6 +8,7 @@ from src.dart.cache import DartCache
 from src.dart.fetcher import DartFetcher
 from src.dart.models import CorpInfo, FinancialStatement
 from src.fundamentals.calculator import compute_metrics
+from src.market_data.models import MarketYearly
 from src.fundamentals.classifier import classify, compute_market_medians
 from src.fundamentals.db import FundamentalsDB
 from src.fundamentals.models import FundamentalsMetrics, ScoreCard
@@ -74,9 +75,7 @@ class Pipeline:
 
     def compute_all(
         self,
-        market_caps: dict[str, float],
-        eps_map: dict[str, float] | None = None,
-        bps_map: dict[str, float] | None = None,
+        market_yearly_map: dict[str, list[MarketYearly]] | None = None,
         markets: list[str] | None = None,
     ) -> tuple[list[FundamentalsMetrics], list[ScoreCard]]:
         """Compute metrics and scores for all cached corps."""
@@ -89,18 +88,17 @@ class Pipeline:
             grouped.setdefault(s.corp_code, []).append(s)
 
         as_of = date.today()
+        market_yearly_map = market_yearly_map or {}
         metrics_list: list[FundamentalsMetrics] = []
         for corp in corps:
             statements = grouped.get(corp.corp_code, [])
-            mc = market_caps.get(corp.ticker)
-            eps = (eps_map or {}).get(corp.ticker)
-            bps = (bps_map or {}).get(corp.ticker)
+            market_yearly = market_yearly_map.get(corp.ticker, [])
             m = compute_metrics(
                 ticker=corp.ticker,
                 corp_code=corp.corp_code,
                 statements=statements,
+                market_yearly=market_yearly,
                 as_of=as_of,
-                market_cap=mc, eps=eps, bps=bps,
             )
             metrics_list.append(m)
 

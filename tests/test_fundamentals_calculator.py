@@ -1,6 +1,7 @@
 from datetime import date
 from src.dart.models import FinancialStatement
 from src.fundamentals.calculator import compute_metrics
+from src.market_data.models import MarketYearly
 
 
 def _make_fs(corp_code, year, account, value, quarter=0):
@@ -28,7 +29,7 @@ def test_compute_basic_metrics():
     metrics = compute_metrics(
         ticker="000001", corp_code="001",
         statements=statements, as_of=date(2026, 4, 17),
-        market_cap=None, eps=None, bps=None,
+        market_yearly=[],
     )
 
     # ROE = 3-year average: (100/1000 + 90/950 + 80/900) / 3 ≈ 9.45%
@@ -52,10 +53,14 @@ def test_compute_with_market_data():
     metrics = compute_metrics(
         ticker="000001", corp_code="001",
         statements=statements, as_of=date(2026, 4, 17),
-        market_cap=1500.0, eps=10.0, bps=100.0,
+        market_yearly=[MarketYearly(
+            corp_code='001', ticker='000001', year=2025,
+            as_of_date=date(2025, 12, 30),
+            market_cap=1500, shares_outstanding=10,
+        )],
     )
 
-    # P/E = price / EPS; market_cap=1500, NI=100 → implied price/EPS via market_cap/NI = 15
+    # P/E = market_cap / NI = 1500/100 = 15
     assert metrics.pe is not None
     assert abs(metrics.pe - 15.0) < 0.01
     # P/B = market_cap / equity = 1500/1000 = 1.5
@@ -75,7 +80,7 @@ def test_revenue_cagr_3y():
     metrics = compute_metrics(
         ticker="000001", corp_code="001",
         statements=statements, as_of=date(2026, 4, 17),
-        market_cap=None, eps=None, bps=None,
+        market_yearly=[],
     )
 
     # CAGR = (1331/1000)^(1/3) - 1 ≈ 0.10 → 10%
@@ -88,7 +93,98 @@ def test_missing_data_returns_none():
     metrics = compute_metrics(
         ticker="000001", corp_code="001",
         statements=[], as_of=date(2026, 4, 17),
-        market_cap=None, eps=None, bps=None,
+        market_yearly=[],
     )
     assert metrics.roe is None
     assert metrics.pe is None
+
+
+# ---------------------------------------------------------------------------
+# New tests for share-derived metrics (EPS, BPS, PSR) + refined PE/PB
+# ---------------------------------------------------------------------------
+
+def _stmt(year, account, value, corp="C1"):
+    return FinancialStatement(corp_code=corp, year=year, quarter=0, account=account, value=value)
+
+
+def _my(year, mc=None, shares=None, close=None, ticker="000660"):
+    return MarketYearly(
+        corp_code="C1", ticker=ticker, year=year,
+        as_of_date=date(year, 12, 30),
+        market_cap=mc, shares_outstanding=shares, close_price=close,
+    )
+
+
+def test_eps_uses_latest_year_net_income_over_shares():
+    statements = [
+        _stmt(2024, "당기순이익", 47_605_327_690),
+        _stmt(2024, "자본총계", 800_000_000_000),
+        _stmt(2024, "매출액", 1_065_000_000_000),
+    ]
+    market = [_my(2024, mc=2_000_000_000_000, shares=243_000_000)]
+    m = compute_metrics(
+        ticker="353200", corp_code="C1",
+        statements=statements, market_yearly=market, as_of=date(2026, 5, 15),
+    )
+    assert m.eps is not None
+    assert abs(m.eps - 195.9) < 1.0   # 47.6B / 243M
+
+
+def test_bps_from_equity_over_shares():
+    statements = [
+        _stmt(2024, "자본총계", 800_000_000_000),
+        _stmt(2024, "당기순이익", 1),
+    ]
+    market = [_my(2024, mc=1, shares=10_000_000)]
+    m = compute_metrics(
+        ticker="X", corp_code="C1",
+        statements=statements, market_yearly=market, as_of=date(2026, 5, 15),
+    )
+    assert m.bps == 80_000.0
+
+
+def test_psr_from_market_cap_now_over_revenue():
+    statements = [
+        _stmt(2024, "매출액", 1_000_000_000_000),
+        _stmt(2024, "자본총계", 1),
+        _stmt(2024, "당기순이익", 1),
+    ]
+    # market_yearly has both 2024 (LY) and 2025 (in-progress = "now")
+    market = [
+        _my(2024, mc=2_000_000_000_000, shares=100_000_000),
+        _my(2025, mc=2_500_000_000_000, shares=100_000_000),
+    ]
+    m = compute_metrics(
+        ticker="X", corp_code="C1",
+        statements=statements, market_yearly=market, as_of=date(2026, 5, 15),
+    )
+    assert m.psr == 2.5    # 2.5T / 1T using market_cap_now (2025)
+
+
+def test_pe_uses_market_cap_now_not_ly():
+    statements = [
+        _stmt(2024, "당기순이익", 1_000_000_000),
+        _stmt(2024, "자본총계", 1),
+    ]
+    market = [
+        _my(2024, mc=10_000_000_000, shares=1_000_000),
+        _my(2025, mc=20_000_000_000, shares=1_000_000),   # "now"
+    ]
+    m = compute_metrics(
+        ticker="X", corp_code="C1",
+        statements=statements, market_yearly=market, as_of=date(2026, 5, 15),
+    )
+    assert m.pe == 20.0   # 20B / 1B using 2025 mc, not 10.0
+
+
+def test_no_market_data_keeps_share_metrics_null():
+    statements = [_stmt(2024, "당기순이익", 1), _stmt(2024, "자본총계", 1)]
+    m = compute_metrics(
+        ticker="X", corp_code="C1",
+        statements=statements, market_yearly=[], as_of=date(2026, 5, 15),
+    )
+    assert m.eps is None
+    assert m.bps is None
+    assert m.psr is None
+    assert m.pe is None
+    assert m.pb is None
