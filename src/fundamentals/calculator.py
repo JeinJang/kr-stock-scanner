@@ -113,13 +113,34 @@ def compute_metrics(
     bps = latest_equity / shares_ly if (latest_equity is not None and shares_ly and shares_ly > 0) else None
     psr = market_cap_now / latest_revenue if (market_cap_now is not None and latest_revenue and latest_revenue > 0) else None
 
+    # --- cashflow-derived metrics ---
+    ocf_by_year = _account_values_by_year(statements, "영업활동현금흐름")
+    capex_by_year = _account_values_by_year(statements, "유형자산취득")
+    # Note: dividend_by_year is used in Task 11 — also extract here for forward use:
+    dividend_by_year = _account_values_by_year(statements, "배당총액")
+
+    # absolute values converted to 억원 (1e8)
+    ocf = ocf_by_year.get(latest_year) / 1e8 if latest_year in ocf_by_year else None
+    fcf = None
+    if latest_year in ocf_by_year and latest_year in capex_by_year:
+        fcf = (ocf_by_year[latest_year] - capex_by_year[latest_year]) / 1e8
+
+    capex_to_revenue = None
+    if latest_year in capex_by_year and latest_revenue and latest_revenue > 0:
+        capex_to_revenue = (capex_by_year[latest_year] / latest_revenue) * 100.0
+
+    ocf_to_ni_ratio = _avg_ocf_to_ni(ocf_by_year, net_income, years=3)
+    fcf_positive_years = _count_fcf_positive(ocf_by_year, capex_by_year, years=5)
+
     return FundamentalsMetrics(
         ticker=ticker, as_of_date=as_of,
         current_ratio=current_ratio, debt_ratio=debt_ratio_pct,
         roe=roe_avg, roic=roic_avg, operating_margin=operating_margin,
         revenue_cagr_3y=revenue_cagr, op_income_cagr_3y=op_income_cagr,
+        ocf_to_ni_ratio=ocf_to_ni_ratio, fcf_positive_years=fcf_positive_years,
         pe=pe, pb=pb, peg=peg,
         eps=eps, bps=bps, psr=psr,
+        ocf=ocf, fcf=fcf, capex_to_revenue=capex_to_revenue,
     )
 
 
@@ -154,3 +175,23 @@ def _three_year_cagr_positive_only(series):
     if s <= 0 or e <= 0:
         return None
     return _cagr(s, e, ys[-1] - ys[-4])
+
+
+def _avg_ocf_to_ni(ocf: dict[int, float], ni: dict[int, float], years: int) -> float | None:
+    common = sorted((y for y in ocf if y in ni and ni[y] != 0), reverse=True)[:years]
+    if not common:
+        return None
+    vals = [ocf[y] / ni[y] for y in common]
+    return sum(vals) / len(vals)
+
+
+def _count_fcf_positive(ocf: dict[int, float], capex: dict[int, float], years: int) -> int | None:
+    common_years = sorted(set(ocf.keys()) | set(capex.keys()), reverse=True)[:years]
+    if not common_years:
+        return None
+    count = 0
+    for y in common_years:
+        if y in ocf and y in capex:
+            if (ocf[y] - capex[y]) > 0:
+                count += 1
+    return count

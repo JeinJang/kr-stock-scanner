@@ -188,3 +188,61 @@ def test_no_market_data_keeps_share_metrics_null():
     assert m.psr is None
     assert m.pe is None
     assert m.pb is None
+
+
+# ---------------------------------------------------------------------------
+# New tests for cashflow-derived metrics (OCF, FCF, CAPEX/Rev, OCF/NI, FCF+yrs)
+# ---------------------------------------------------------------------------
+
+def test_ocf_and_fcf_use_latest_year_in_억():
+    statements = [
+        _stmt(2024, "당기순이익", 1), _stmt(2024, "자본총계", 1),
+        _stmt(2024, "영업활동현금흐름", 50_000_000_000),   # 500억
+        _stmt(2024, "유형자산취득", 30_000_000_000),       # 300억
+    ]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.ocf == 500.0
+    assert m.fcf == 200.0
+
+
+def test_capex_to_revenue_pct():
+    statements = [
+        _stmt(2024, "당기순이익", 1), _stmt(2024, "자본총계", 1),
+        _stmt(2024, "매출액", 1_000_000_000_000),
+        _stmt(2024, "유형자산취득", 100_000_000_000),
+    ]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.capex_to_revenue == 10.0
+
+
+def test_ocf_to_ni_ratio_averages_3_years():
+    statements = [
+        _stmt(2024, "당기순이익", 100), _stmt(2024, "영업활동현금흐름", 110), _stmt(2024, "자본총계", 1),
+        _stmt(2023, "당기순이익", 100), _stmt(2023, "영업활동현금흐름", 90),
+        _stmt(2022, "당기순이익", 100), _stmt(2022, "영업활동현금흐름", 100),
+    ]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    # avg(1.1, 0.9, 1.0) = 1.0
+    assert abs(m.ocf_to_ni_ratio - 1.0) < 1e-9
+
+
+def test_fcf_positive_years_counts_last_5():
+    statements = [_stmt(2024, "자본총계", 1)]
+    # OCF=100 CAPEX=50  -> FCF=+50 (positive)
+    # OCF=50  CAPEX=80  -> FCF=-30 (negative)
+    yearly = [(2020, 100, 50), (2021, 100, 50), (2022, 50, 80), (2023, 100, 50), (2024, 100, 50)]
+    for y, ocf, capex in yearly:
+        statements.append(_stmt(y, "영업활동현금흐름", ocf))
+        statements.append(_stmt(y, "유형자산취득", capex))
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.fcf_positive_years == 4   # all except 2022
+
+
+def test_cashflow_metrics_null_when_missing():
+    statements = [_stmt(2024, "당기순이익", 1), _stmt(2024, "자본총계", 1)]
+    m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
+    assert m.ocf is None
+    assert m.fcf is None
+    assert m.capex_to_revenue is None
+    assert m.ocf_to_ni_ratio is None
+    assert m.fcf_positive_years is None
