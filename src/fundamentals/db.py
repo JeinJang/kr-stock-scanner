@@ -5,7 +5,7 @@ from datetime import date
 
 from sqlalchemy import (
     Column, Integer, String, Float, Date,
-    create_engine, delete, select,
+    create_engine, delete, select, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -34,6 +34,15 @@ class MetricsRow(FundamentalsBase):
     pe = Column(Float, nullable=True)
     pb = Column(Float, nullable=True)
     peg = Column(Float, nullable=True)
+    eps = Column(Float, nullable=True)
+    bps = Column(Float, nullable=True)
+    psr = Column(Float, nullable=True)
+    ocf = Column(Float, nullable=True)
+    fcf = Column(Float, nullable=True)
+    capex_to_revenue = Column(Float, nullable=True)
+    dividend_yield = Column(Float, nullable=True)
+    payout_ratio = Column(Float, nullable=True)
+    consecutive_dividend_years = Column(Integer, nullable=True)
 
 
 class ScoreRow(FundamentalsBase):
@@ -50,12 +59,35 @@ class ScoreRow(FundamentalsBase):
     categories = Column(String(200), nullable=False)  # JSON-encoded list
 
 
+def _migrate_add_enrichment_columns(engine) -> None:
+    """Idempotent ALTER for the 9 enrichment columns. Safe to run repeatedly."""
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    existing = {col["name"] for col in insp.get_columns("fundamentals_metrics")}
+    to_add = [
+        ("eps", "FLOAT"),
+        ("bps", "FLOAT"),
+        ("psr", "FLOAT"),
+        ("ocf", "FLOAT"),
+        ("fcf", "FLOAT"),
+        ("capex_to_revenue", "FLOAT"),
+        ("dividend_yield", "FLOAT"),
+        ("payout_ratio", "FLOAT"),
+        ("consecutive_dividend_years", "INTEGER"),
+    ]
+    with engine.begin() as conn:
+        for name, sqltype in to_add:
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE fundamentals_metrics ADD COLUMN {name} {sqltype}"))
+
+
 class FundamentalsDB:
     """Persistence for derived metrics and scores."""
 
     def __init__(self, url: str = "sqlite:///data/scanner.db"):
         self.engine = create_engine(url)
         FundamentalsBase.metadata.create_all(self.engine)
+        _migrate_add_enrichment_columns(self.engine)
 
     def save_metrics(self, metrics: list[FundamentalsMetrics]) -> None:
         if not metrics:
@@ -72,6 +104,10 @@ class FundamentalsDB:
                     revenue_cagr_3y=m.revenue_cagr_3y, op_income_cagr_3y=m.op_income_cagr_3y,
                     ocf_to_ni_ratio=m.ocf_to_ni_ratio, fcf_positive_years=m.fcf_positive_years,
                     pe=m.pe, pb=m.pb, peg=m.peg,
+                    eps=m.eps, bps=m.bps, psr=m.psr,
+                    ocf=m.ocf, fcf=m.fcf, capex_to_revenue=m.capex_to_revenue,
+                    dividend_yield=m.dividend_yield, payout_ratio=m.payout_ratio,
+                    consecutive_dividend_years=m.consecutive_dividend_years,
                 ))
             session.commit()
 
@@ -125,6 +161,10 @@ class FundamentalsDB:
                     ocf_to_ni_ratio=r.ocf_to_ni_ratio,
                     fcf_positive_years=r.fcf_positive_years,
                     pe=r.pe, pb=r.pb, peg=r.peg,
+                    eps=r.eps, bps=r.bps, psr=r.psr,
+                    ocf=r.ocf, fcf=r.fcf, capex_to_revenue=r.capex_to_revenue,
+                    dividend_yield=r.dividend_yield, payout_ratio=r.payout_ratio,
+                    consecutive_dividend_years=r.consecutive_dividend_years,
                 )
                 for r in rows
             ]
