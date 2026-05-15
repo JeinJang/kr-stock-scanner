@@ -92,7 +92,7 @@ class Pipeline:
         metrics_list: list[FundamentalsMetrics] = []
         for corp in corps:
             statements = grouped.get(corp.corp_code, [])
-            market_yearly = market_yearly_map.get(corp.ticker, [])
+            market_yearly = market_yearly_map.get(corp.corp_code, [])
             m = compute_metrics(
                 ticker=corp.ticker,
                 corp_code=corp.corp_code,
