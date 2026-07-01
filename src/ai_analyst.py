@@ -7,6 +7,18 @@ from loguru import logger
 from src.models import StockHigh, NewsArticle, AIAnalysisResult
 
 
+def _strip_preamble(text: str) -> str:
+    """Remove any preamble the model adds before the first ``[...]`` section.
+
+    가끔 모델이 "다음은 제시해주신 정보를 바탕으로 한 분석입니다." 같은 서두를
+    지정된 형식 앞에 붙이는데, 첫 ``[`` 섹션 헤더 이전 텍스트를 잘라냅니다.
+    """
+    idx = text.find("[")
+    if idx > 0:
+        return text[idx:].strip()
+    return text
+
+
 def _sanitize(text: str) -> str:
     """Remove characters that can break JSON serialization."""
     # Remove surrogates and invalid Unicode by round-tripping through UTF-8
@@ -55,7 +67,7 @@ class AIAnalyst:
         )
 
         content = response.choices[0].message.content
-        analysis = content.strip() if content else "분석 결과를 생성하지 못했습니다."
+        analysis = _strip_preamble(content.strip()) if content else "분석 결과를 생성하지 못했습니다."
 
         news_links = [a.link for a in news if a.link]
 
