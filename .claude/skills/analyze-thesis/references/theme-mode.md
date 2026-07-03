@@ -14,7 +14,7 @@
    sqlite3 data/scanner.db "SELECT c.name, c.market FROM dart_corp_info c WHERE c.ticker='<TICKER>';"
    sqlite3 data/scanner.db "SELECT ticker, as_of_date, pe, pb, roe, operating_margin FROM fundamentals_metrics WHERE ticker='<TICKER>' ORDER BY as_of_date DESC LIMIT 1;"
    ```
-   시총·매출비중·수주가시성·경쟁강도를 정리하고 리스크/리워드를 태깅. 웹으로 수주 실적을 확인.
+   시총·매출비중·수주가시성·경쟁강도를 정리하고 리스크/리워드를 태깅. 웹으로 수주 실적을 확인. 시총·밸류는 DB(as_of) 기준을 쓰고 웹 값은 날짜 병기(SKILL.md "밸류 신선도" 참조).
 5. **최적 자리 도출** — `references/lens.md`의 판단 휴리스틱 적용(빅캡 탄력 약함, 수주 실적 있는 벤더 우선, 매출 비중 높을수록 순수 노출). 1-3개 우선 후보 + 선정 이유.
 6. **파일 저장** — `docs/analysis/themes/{테마슬러그}_{YYYY-MM-DD}.md`. `{테마슬러그}`는 공백을 하이픈으로 치환한 키워드. 같은 날짜 파일 존재 시 덮어쓰기 전 확인. 저장 후 경로를 마크다운 링크로 안내.
 
