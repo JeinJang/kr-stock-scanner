@@ -2,8 +2,27 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from src.related.extractor import RelationExtractor, normalize_name, resolve_ticker
+from src.related.extractor import (
+    RelationExtractor,
+    _SYSTEM_PROMPT,
+    normalize_name,
+    resolve_ticker,
+)
 from src.related.models import ReportSections
+
+
+def test_system_prompt_has_direction_and_merger_rules():
+    """Regression guard: the prompt must keep the direction (parent vs
+    subsidiary) and merged-entity-exclusion directives that prevent the
+    known extraction errors (e.g. labeling a parent holdco as a subsidiary,
+    or keeping a company that was absorbed by merger)."""
+    # 방향 규약: 모회사·지배기업은 Affiliate, 본 기업이 지배하는 것만 Subsidiary
+    assert "모회사" in _SYSTEM_PROMPT
+    assert "지배기업" in _SYSTEM_PROMPT
+    assert "방향" in _SYSTEM_PROMPT
+    # 합병 소멸 회사 제외
+    assert "흡수합병" in _SYSTEM_PROMPT
+    assert ("소멸" in _SYSTEM_PROMPT) or ("해산" in _SYSTEM_PROMPT)
 
 
 def test_normalize_name_strips_corporate_suffixes():
