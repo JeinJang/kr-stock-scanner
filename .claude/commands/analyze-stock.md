@@ -5,6 +5,35 @@ argument-hint: <ticker>
 
 당신은 한국 주식 시장 전문 애널리스트입니다. 아래 절차를 따라 `$ARGUMENTS` 종목에 대한 정성적 투자 분석을 작성하고, **반드시 `docs/analysis/` 디렉토리에 마크다운 파일로 저장**하세요.
 
+## 사전 조건 (선행 커맨드)
+
+이 분석은 아래 테이블에 데이터가 적재돼 있어야 합니다. 각 테이블을 채우는 커맨드와 권장 실행 순서는 다음과 같습니다.
+
+| 읽는 테이블 | 용도 | 채우는 커맨드 |
+| --- | --- | --- |
+| `dart_corp_info`, `dart_financials` | 종목 기본정보 + 연도별 손익/BS 시계열 | `python -m src.fundamentals.cli refresh` |
+| `fundamentals_metrics`, `fundamentals_scores`, `corp_market_yearly` | 지표·점수·연도별 시총 | `python -m src.fundamentals.cli run` (refresh 내용 포함, 5스텝 전체) |
+| `related_edges` | 연관기업(공급망/고객/경쟁/계열/자회사) | `python -m src.related.cli show <ticker>` (종목별 on-demand) |
+| `new_highs.sector` | 섹터 비교 (선택) | `python -m src.cli run` 또는 `collect` (52주 신고가 스캔) |
+
+**권장 실행 순서**
+
+```bash
+# 1) 펀더멘털 전체 — metrics/scores/financials/시총을 한 번에 적재.
+#    fundamentals_metrics.as_of_date 가 30일 이상 오래됐을 때만 실행 (아래 1-0 신선도 가드 참조).
+python -m src.fundamentals.cli run
+
+# 2) 분석 대상 종목의 연관기업 추출 — 종목 단위 on-demand. 신규 종목은 거의 항상 필요.
+python -m src.related.cli show $ARGUMENTS
+
+# 3) 분석 실행 (이 커맨드)
+```
+
+주의:
+- `fundamentals.cli run` 이 `refresh` 의 일(DART 적재)을 포함하므로 둘 다 돌릴 필요는 없습니다.
+- `related_edges` 는 전체 배치가 아니라 **종목별로** 채워지므로, 대상 종목에 데이터가 없으면 `related.cli show` 를 먼저 실행하세요.
+- `new_highs.sector` 는 그 종목이 **52주 신고가에 걸린 날**에만 채워집니다. 없으면 섹터 비교는 생략하고 "섹터 정보 미수집"으로 표기합니다.
+
 ## 0. 종목 확인
 
 `$ARGUMENTS` 가 비어있다면 사용자에게 분석할 종목 티커(6자리)를 물어보고 답변을 기다린 후 진행하세요.
