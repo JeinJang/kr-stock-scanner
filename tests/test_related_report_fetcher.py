@@ -1,4 +1,7 @@
-from unittest.mock import AsyncMock, MagicMock
+import io
+import zipfile
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from src.related.report_fetcher import ReportFetcher
@@ -56,3 +59,31 @@ def test_parse_sections_extracts_four_blocks():
     assert "삼성SDI" in sections.affiliates
     assert "이재용" in sections.related_party
     assert "삼성디스플레이로부터 패널" in sections.related_party_notes
+
+
+@pytest.mark.asyncio
+async def test_download_document_picks_main_entry_from_multifile_zip():
+    """대기업 보고서 zip은 부속문서가 앞에 오므로 본문 `{rcept_no}.xml` 을 골라야 한다."""
+    rcept_no = "20260320000859"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        # 첫 항목은 부속문서 — 예전 코드는 이걸 읽어 섹션이 비었다.
+        zf.writestr(f"{rcept_no}_00760.xml", "부속문서 감사보고서")
+        zf.writestr(f"{rcept_no}_00761.xml", "부속문서 내부회계")
+        zf.writestr(f"{rcept_no}.xml", "본문: 사업의 내용 및 계열회사 등")
+    zip_bytes = buf.getvalue()
+
+    resp = MagicMock()
+    resp.content = zip_bytes
+    resp.raise_for_status = MagicMock()
+    http = AsyncMock()
+    http.get = AsyncMock(return_value=resp)
+    http.__aenter__ = AsyncMock(return_value=http)
+    http.__aexit__ = AsyncMock(return_value=False)
+
+    fetcher = ReportFetcher(client=MagicMock(_api_key="k"))
+    with patch("src.related.report_fetcher.httpx.AsyncClient", return_value=http):
+        text = await fetcher.download_document(rcept_no)
+
+    assert "본문" in text
+    assert "부속문서" not in text

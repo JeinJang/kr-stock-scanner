@@ -69,7 +69,14 @@ class ReportFetcher:
             resp.raise_for_status()
             content = resp.content
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            name = zf.namelist()[0]
+            names = zf.namelist()
+            # 대기업 보고서 zip은 부속문서가 여러 개 들어 있고 첫 항목이 본문이
+            # 아닐 수 있습니다. 본문은 접미사 없는 `{rcept_no}.xml` 이며, 없으면
+            # 가장 큰 파일을 본문으로 간주합니다.
+            main = f"{rcept_no}.xml"
+            name = main if main in names else max(
+                names, key=lambda n: zf.getinfo(n).file_size
+            )
             with zf.open(name) as f:
                 raw = f.read()
         try:
