@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -41,26 +42,42 @@ def resolve_ticker(name: str, name_to_ticker: dict[str, str]) -> str | None:
     return norm_map.get(norm)
 
 
-_SYSTEM_PROMPT = """당신은 한국 기업의 사업보고서를 분석하는 전문가입니다.
-주어진 텍스트에서 본 기업과 다른 기업 간의 관계를 추출해 JSON으로 출력하세요.
-
-관계 타입은 모두 "본 기업 기준"으로, 상대 기업(target)이 본 기업에 대해 갖는 관계입니다:
-- Supplier: 공급업체 (본 기업이 매입하는 거래처)
-- Customer: 고객사 (본 기업이 매출을 일으키는 거래처)
-- Competitor: 경쟁사
-- Affiliate: 같은 그룹의 계열사. **본 기업을 지배하는 모회사·지배기업·최대주주도 여기에 포함**합니다(이들은 본 기업의 자회사가 아니므로 절대 Subsidiary로 분류하지 마세요).
-- Subsidiary: **본 기업이 지분을 보유·지배하는 자회사·종속회사만** 해당합니다. 본 기업이 지배당하는(피지배) 관계는 Subsidiary가 아닙니다.
-
-규칙:
-- 본 기업 자체나 자기 자신은 포함하지 마세요.
-- **방향 주의(가장 흔한 오류):** '출자회사/피출자회사', '지배기업/종속기업' 표에서는 방향을 반대로 적기 쉽습니다. 본 기업이 상대를 지배하면 Subsidiary, 상대가 본 기업을 지배하면(=모회사·중간지주) Affiliate로 분류하세요.
-- **소멸 회사 제외:** 흡수합병되어 소멸했거나 청산·해산된 회사, 합병으로 존속법인에 통합돼 더 이상 별도로 존재하지 않는 회사는 관계에서 제외하세요.
-- **밸류체인(고객·공급처)을 반드시 찾으세요:** 계열사·자회사만 나열하고 끝내면 안 됩니다. '사업의 내용'의 주요 매출처·수요처·납품처는 **Customer**, 원재료 매입처·공급처·외주처는 **Supplier**로 추출하세요. 소재·부품·장비 기업은 전방 대기업 고객이 핵심 정보입니다.
-- **익명 거래처도 기록:** 보고서가 'A사', '국내 대형 반도체업체'처럼 익명 처리했더라도 그대로 name에 적고 ticker는 null로 두세요. 누락하지 마세요.
-- 각 항목에 evidence(원문에서 인용한 짧은 근거 문장)를 반드시 포함하세요.
+_SCHEMA_RULES = """- 각 항목에 evidence(원문에서 인용한 짧은 근거 문장)를 반드시 포함하세요.
 - ticker는 6자리 한국 종목코드. 모르거나 비상장/외국기업이면 null.
+- 본 기업 자체나 자기 자신은 포함하지 마세요.
 - 출력 스키마: {"edges": [{"name": str, "ticker": str|null, "relation": str, "evidence": str}]}
 """
+
+# 한 번의 호출로 계열과 밸류체인을 동시에 시키면 모델이 한쪽으로 쏠려 다른 쪽을
+# 통째로 누락합니다(실측: 실행마다 계열만 또는 고객/공급처만 나옴). 그래서
+# 프롬프트와 입력 섹션을 분리해 두 번 호출한 뒤 병합합니다.
+_SYSTEM_PROMPT_STRUCTURE = """당신은 한국 기업의 사업보고서를 분석하는 전문가입니다.
+주어진 텍스트에서 본 기업의 **계열·지배구조 관계**만 추출해 JSON으로 출력하세요.
+
+관계 타입(상대 기업이 본 기업에 대해 갖는 관계):
+- Subsidiary: **본 기업이 지분을 보유·지배하는 자회사·종속회사만** 해당합니다.
+- Affiliate: 같은 그룹의 계열사. **본 기업을 지배하는 모회사·지배기업·최대주주도 여기에 포함**합니다(이들은 본 기업의 자회사가 아니므로 절대 Subsidiary로 분류하지 마세요).
+
+규칙:
+- **방향 주의(가장 흔한 오류):** '출자회사/피출자회사', '지배기업/종속기업' 표에서는 방향을 반대로 적기 쉽습니다. 본 기업이 상대를 지배하면 Subsidiary, 상대가 본 기업을 지배하면(=모회사·중간지주) Affiliate로 분류하세요.
+- **소멸 회사 제외:** 흡수합병되어 소멸했거나 청산·해산된 회사는 제외하세요.
+- 계열회사 표의 항목을 **하나도 빠뜨리지 말고** 모두 나열하세요(해외 법인 포함). 같은 회사를 두 번 넣지는 마세요.
+""" + _SCHEMA_RULES
+
+_SYSTEM_PROMPT_VALUE_CHAIN = """당신은 한국 기업의 사업보고서를 분석하는 전문가입니다.
+주어진 '사업의 내용'에서 본 기업의 **밸류체인 거래 관계**만 추출해 JSON으로 출력하세요.
+
+관계 타입(상대 기업이 본 기업에 대해 갖는 관계):
+- Customer: 고객사 — 주요 매출처·수요처·납품처 (본 기업이 매출을 일으키는 상대)
+- Supplier: 공급업체 — 원재료 매입처·공급처·외주처 (본 기업이 매입하는 상대)
+- Competitor: 경쟁사
+
+규칙:
+- 계열사·자회사 목록은 여기서 다루지 않습니다. **거래 상대(고객·공급처)만** 뽑으세요.
+- 소재·부품·장비 기업은 전방 대기업 고객이 핵심 정보이므로 반드시 찾아 포함하세요.
+- **익명 거래처도 기록:** 보고서가 'A사', '국내 대형 반도체업체'처럼 익명 처리했더라도 그대로 name에 적고 ticker는 null로 두세요. 누락하지 마세요.
+- 매출 비중(%)이 적혀 있으면 evidence에 함께 인용하세요.
+""" + _SCHEMA_RULES
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -114,19 +131,59 @@ class RelationExtractor:
         sections: ReportSections,
         name_to_ticker: dict[str, str],
     ) -> list[ExtractedEdge]:
-        body = (
+        structure_body = (
             f"대상 기업: {target_name} ({target_ticker})\n\n"
-            f"=== 사업의 내용 ===\n{_truncate_value_chain(sections.business_content, self._max_chars)}\n\n"
             f"=== 계열회사 등 ===\n{_truncate(sections.affiliates, self._max_chars)}\n\n"
             f"=== 대주주 등과의 거래 ===\n{_truncate(sections.related_party, self._max_chars)}\n\n"
             f"=== 특수관계자 거래 ===\n{_truncate(sections.related_party_notes, self._max_chars)}\n"
         )
+        value_chain_body = (
+            f"대상 기업: {target_name} ({target_ticker})\n\n"
+            f"=== 사업의 내용 ===\n"
+            f"{_truncate_value_chain(sections.business_content, self._max_chars)}\n"
+        )
 
+        passes = await asyncio.gather(
+            self._run_pass(_SYSTEM_PROMPT_STRUCTURE, structure_body, target_ticker),
+            self._run_pass(_SYSTEM_PROMPT_VALUE_CHAIN, value_chain_body, target_ticker),
+        )
+
+        result: list[ExtractedEdge] = []
+        seen: set[str] = set()
+        for edges_raw in passes:
+            for item in edges_raw:
+                name = (item.get("name") or "").strip()
+                if not name:
+                    continue
+                relation = item.get("relation")
+                if relation not in ("Supplier", "Customer", "Competitor",
+                                    "Affiliate", "Subsidiary"):
+                    continue
+                key = normalize_name(name).lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                ticker = item.get("ticker")
+                if not ticker:
+                    ticker = resolve_ticker(name, name_to_ticker)
+                else:
+                    if ticker not in set(name_to_ticker.values()):
+                        ticker = resolve_ticker(name, name_to_ticker)
+                evidence = (item.get("evidence") or "").strip()
+                result.append(ExtractedEdge(
+                    name=name, ticker=ticker, relation=relation, evidence=evidence,
+                ))
+        return result
+
+    async def _run_pass(
+        self, system_prompt: str, body: str, target_ticker: str,
+    ) -> list[dict]:
+        """Run one extraction pass; return raw edge dicts ([] on parse failure)."""
         resp = await self._client.chat.completions.create(
             model=self._model,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": body},
             ],
         )
@@ -136,25 +193,4 @@ class RelationExtractor:
         except json.JSONDecodeError as e:
             logger.warning(f"JSON parse failed for {target_ticker}: {e}")
             return []
-
-        edges_raw = data.get("edges", [])
-        result: list[ExtractedEdge] = []
-        for item in edges_raw:
-            name = (item.get("name") or "").strip()
-            if not name:
-                continue
-            relation = item.get("relation")
-            if relation not in ("Supplier", "Customer", "Competitor",
-                                "Affiliate", "Subsidiary"):
-                continue
-            ticker = item.get("ticker")
-            if not ticker:
-                ticker = resolve_ticker(name, name_to_ticker)
-            else:
-                if ticker not in set(name_to_ticker.values()):
-                    ticker = resolve_ticker(name, name_to_ticker)
-            evidence = (item.get("evidence") or "").strip()
-            result.append(ExtractedEdge(
-                name=name, ticker=ticker, relation=relation, evidence=evidence,
-            ))
-        return result
+        return data.get("edges", [])

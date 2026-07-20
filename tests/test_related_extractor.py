@@ -4,7 +4,8 @@ import pytest
 
 from src.related.extractor import (
     RelationExtractor,
-    _SYSTEM_PROMPT,
+    _SYSTEM_PROMPT_STRUCTURE,
+    _SYSTEM_PROMPT_VALUE_CHAIN,
     _truncate_value_chain,
     normalize_name,
     resolve_ticker,
@@ -12,22 +13,88 @@ from src.related.extractor import (
 from src.related.models import ReportSections
 
 
-def test_system_prompt_has_direction_and_merger_rules():
-    """Regression guard: the prompt must keep the direction (parent vs
-    subsidiary) and merged-entity-exclusion directives that prevent the
-    known extraction errors (e.g. labeling a parent holdco as a subsidiary,
-    or keeping a company that was absorbed by merger)."""
-    # 방향 규약: 모회사·지배기업은 Affiliate, 본 기업이 지배하는 것만 Subsidiary
-    assert "모회사" in _SYSTEM_PROMPT
-    assert "지배기업" in _SYSTEM_PROMPT
-    assert "방향" in _SYSTEM_PROMPT
-    # 합병 소멸 회사 제외
-    assert "흡수합병" in _SYSTEM_PROMPT
-    assert ("소멸" in _SYSTEM_PROMPT) or ("해산" in _SYSTEM_PROMPT)
-    # 밸류체인(고객·공급처) 추출 — 계열사만 뽑히던 문제 방지
-    assert "매출처" in _SYSTEM_PROMPT
-    assert "Customer" in _SYSTEM_PROMPT and "Supplier" in _SYSTEM_PROMPT
-    assert "익명" in _SYSTEM_PROMPT
+def test_structure_prompt_has_direction_and_merger_rules():
+    """계열 패스 프롬프트는 방향 규약(모회사↔자회사)과 합병 소멸 제외를 유지해야 한다."""
+    assert "모회사" in _SYSTEM_PROMPT_STRUCTURE
+    assert "지배기업" in _SYSTEM_PROMPT_STRUCTURE
+    assert "방향" in _SYSTEM_PROMPT_STRUCTURE
+    assert "흡수합병" in _SYSTEM_PROMPT_STRUCTURE
+    assert ("소멸" in _SYSTEM_PROMPT_STRUCTURE) or ("해산" in _SYSTEM_PROMPT_STRUCTURE)
+
+
+def test_value_chain_prompt_has_customer_supplier_rules():
+    """밸류체인 패스 프롬프트는 고객·공급처 추출과 익명 거래처 기록을 지시해야 한다."""
+    assert "매출처" in _SYSTEM_PROMPT_VALUE_CHAIN
+    assert "Customer" in _SYSTEM_PROMPT_VALUE_CHAIN
+    assert "Supplier" in _SYSTEM_PROMPT_VALUE_CHAIN
+    assert "익명" in _SYSTEM_PROMPT_VALUE_CHAIN
+
+
+def _mock_resp(payload: dict):
+    msg = MagicMock(); msg.content = json.dumps(payload)
+    choice = MagicMock(); choice.message = msg
+    resp = MagicMock(); resp.choices = [choice]
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_extract_runs_two_passes_and_merges_both_categories():
+    """한 번의 호출로는 계열/밸류체인 중 한쪽만 나오는 문제가 있어 패스를 분리한다.
+    구조(계열) 패스와 밸류체인 패스를 각각 호출하고 결과를 합쳐야 한다."""
+    sections = ReportSections(
+        corp_code="00", rcept_no="0",
+        business_content="주요 매출처: A사 38%",
+        affiliates="계열회사: 자회사케이",
+        related_party="", related_party_notes="",
+    )
+    structure = _mock_resp({"edges": [
+        {"name": "자회사케이", "ticker": None, "relation": "Subsidiary", "evidence": "계열회사"},
+    ]})
+    value_chain = _mock_resp({"edges": [
+        {"name": "A사", "ticker": None, "relation": "Customer", "evidence": "주요 매출처 38%"},
+    ]})
+
+    mock_openai = MagicMock()
+    mock_openai.chat.completions.create = AsyncMock(side_effect=[structure, value_chain])
+
+    with patch("openai.AsyncOpenAI", return_value=mock_openai):
+        extractor = RelationExtractor(api_key="k")
+        edges = await extractor.extract(
+            target_name="심텍", target_ticker="222800",
+            sections=sections, name_to_ticker={},
+        )
+
+    assert mock_openai.chat.completions.create.await_count == 2
+    relations = {e.relation for e in edges}
+    assert "Subsidiary" in relations, "계열 패스 결과가 누락되면 안 됨"
+    assert "Customer" in relations, "밸류체인 패스 결과가 누락되면 안 됨"
+
+
+@pytest.mark.asyncio
+async def test_extract_dedupes_same_company_across_passes():
+    """두 패스가 같은 회사를 반환해도 한 번만 남아야 한다(중복 방지)."""
+    sections = ReportSections(
+        corp_code="00", rcept_no="0", business_content="x",
+        affiliates="y", related_party="", related_party_notes="",
+    )
+    dup_a = _mock_resp({"edges": [
+        {"name": "(주)동일기업", "ticker": None, "relation": "Affiliate", "evidence": "계열"},
+    ]})
+    dup_b = _mock_resp({"edges": [
+        {"name": "동일기업", "ticker": None, "relation": "Customer", "evidence": "매출처"},
+    ]})
+
+    mock_openai = MagicMock()
+    mock_openai.chat.completions.create = AsyncMock(side_effect=[dup_a, dup_b])
+
+    with patch("openai.AsyncOpenAI", return_value=mock_openai):
+        extractor = RelationExtractor(api_key="k")
+        edges = await extractor.extract(
+            target_name="심텍", target_ticker="222800",
+            sections=sections, name_to_ticker={},
+        )
+
+    assert len(edges) == 1, f"중복 제거 실패: {[e.name for e in edges]}"
 
 
 def test_truncate_preserves_value_chain_lines_when_cut():
