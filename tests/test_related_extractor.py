@@ -5,6 +5,7 @@ import pytest
 from src.related.extractor import (
     RelationExtractor,
     _SYSTEM_PROMPT,
+    _truncate_value_chain,
     normalize_name,
     resolve_ticker,
 )
@@ -23,6 +24,30 @@ def test_system_prompt_has_direction_and_merger_rules():
     # 합병 소멸 회사 제외
     assert "흡수합병" in _SYSTEM_PROMPT
     assert ("소멸" in _SYSTEM_PROMPT) or ("해산" in _SYSTEM_PROMPT)
+    # 밸류체인(고객·공급처) 추출 — 계열사만 뽑히던 문제 방지
+    assert "매출처" in _SYSTEM_PROMPT
+    assert "Customer" in _SYSTEM_PROMPT and "Supplier" in _SYSTEM_PROMPT
+    assert "익명" in _SYSTEM_PROMPT
+
+
+def test_truncate_preserves_value_chain_lines_when_cut():
+    """사업의 내용은 길어서 앞부분만 남기면 뒤쪽 '주요 매출처/원재료' 표가
+    잘려 고객·공급망 관계가 영영 추출되지 않는다. 잘릴 때 해당 줄은 보존해야 한다."""
+    filler = "회사의 일반적인 사업 개요 설명입니다.\n" * 200
+    tail = "주요 매출처: 삼성전자, SK하이닉스\n원재료 매입처: A사"
+    text = filler + tail
+
+    out = _truncate_value_chain(text, max_chars=500)
+
+    assert len(out) <= 500 + 40  # truncation marker 여유
+    assert "주요 매출처" in out
+    assert "삼성전자" in out
+    assert "원재료 매입처" in out
+
+
+def test_truncate_value_chain_returns_text_unchanged_when_short():
+    text = "짧은 본문. 주요 매출처: 삼성전자"
+    assert _truncate_value_chain(text, max_chars=1000) == text
 
 
 def test_normalize_name_strips_corporate_suffixes():
