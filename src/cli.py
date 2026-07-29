@@ -31,6 +31,10 @@ def _make_client(settings: Settings):
 @app.command()
 def run(
     target_date: str = typer.Option(None, "--date", "-d", help="Target date (YYYYMMDD)"),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="캐시 무시하고 해당 날짜를 완전히 다시 수집·스캔·분석",
+    ),
 ):
     """Run the full pipeline: collect, scan, news, analyze, report."""
     date_str = target_date or _get_date_str()
@@ -48,8 +52,8 @@ def run(
 
     db = Database()
 
-    # Step 1-3: 수집/스캔 (DB에 이전 결과 있으면 스킵)
-    existing = db.get_scan_result_full(scan_date)
+    # Step 1-3: 수집/스캔 (DB에 이전 결과 있으면 스킵; --force면 무시하고 재수집)
+    existing = None if force else db.get_scan_result_full(scan_date)
     market_caps: dict[str, int] = {}
     if existing:
         console.print("[dim]1-3/5 이전 스캔 결과 사용 (DB에서 로드)[/dim]")
@@ -104,8 +108,10 @@ def run(
         result = scanner.build_scan_result(scan_date, highs, len(daily_data))
         db.save_scan_result(result)
 
-    # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵)
-    done_tickers = db.get_ai_analyzed_tickers(scan_date)
+    # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵; --force면 전체 재분석)
+    if force:
+        db.delete_ai_analyses(scan_date)
+    done_tickers = set() if force else db.get_ai_analyzed_tickers(scan_date)
     remaining = [h for h in highs if h.ticker not in done_tickers]
 
     if remaining:
