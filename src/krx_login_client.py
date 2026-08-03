@@ -29,6 +29,20 @@ _BLD = {
 
 _MARKET_CODES = {"KOSPI": "STK", "KOSDAQ": "KSQ", "KONEX": "KNX"}
 
+# KRX가 IP/계정을 차단하면 JSON 대신 이 문구가 담긴 HTML 에러페이지(200)를 반환.
+_BLOCK_MARKERS = ("ip-block-page", "에러페이지 - 한국거래소")
+
+
+def _is_block_page(text: str) -> bool:
+    """KRX Data Marketplace 차단/에러 HTML 페이지인지 판별."""
+    if not text:
+        return False
+    return any(marker in text for marker in _BLOCK_MARKERS)
+
+
+class KrxBlockedError(RuntimeError):
+    """KRX가 IP 또는 계정을 차단했을 때 발생. 추가 요청을 즉시 중단하기 위함."""
+
 
 class KrxLoginClient:
     """KRX client with session login auth. Supports per-ticker history."""
@@ -48,6 +62,7 @@ class KrxLoginClient:
             "Referer": _MAIN_PAGE,
         })
         self._logged_in = False
+        self._blocked = False
         self._session_initialized = False
         self._last_req_time = 0.0
         self._name_cache: dict[str, str] | None = None
@@ -129,14 +144,29 @@ class KrxLoginClient:
         self._last_req_time = time.time()
         
 
+    def _guard_block(self, body: str) -> None:
+        """차단 페이지면 blocked 플래그를 세우고 즉시 중단(추가 요청 방지)."""
+        if _is_block_page(body):
+            self._blocked = True
+            logger.error(
+                "KRX 차단 페이지 감지(IP 또는 계정 차단). 이후 요청을 모두 중단합니다. "
+                "재시도는 차단을 연장시킬 수 있으니, 수 시간 뒤 또는 data.krx.co.kr "
+                "계정/IP 상태 확인 후 진행하세요."
+            )
+            raise KrxBlockedError("KRX Data Marketplace 차단 페이지 수신")
+
     def _post(self, bld: str, params: dict) -> list[dict]:
         """POST to getJsonData.cmd. Tries without login first, retries with login on LOGOUT."""
+        if self._blocked:
+            # 이미 차단 감지 — 네트워크 요청 없이 즉시 중단
+            raise KrxBlockedError("KRX 차단 상태 — 요청 중단")
         self._init_session()
         self._rate_limit()
         data = {"bld": bld, **params}
 
         resp = self._session.post(_DATA_URL, data=data, timeout=60)
         body = resp.text.strip()
+        self._guard_block(body)
 
         if body == "LOGOUT" or resp.status_code == 400:
             if not self._logged_in:
@@ -146,6 +176,7 @@ class KrxLoginClient:
                     self._rate_limit()
                     resp = self._session.post(_DATA_URL, data=data, timeout=60)
                     body = resp.text.strip()
+                    self._guard_block(body)
 
             if body == "LOGOUT" or resp.status_code == 400:
                 logger.warning(
