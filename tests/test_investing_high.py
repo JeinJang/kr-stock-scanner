@@ -92,3 +92,32 @@ def test_build_highs_assembles_stockhigh():
     assert (h.ticker, h.market, h.sector) == ("052460", "KOSDAQ", "IT")
     assert h.close_price == 5190.0 and h.volume == 2_070_000
     assert h.breakout_pct == 12.34
+
+
+def test_collect_investing_highs_end_to_end(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    import src.investing_high as inv
+
+    html = (Path(__file__).parent / "fixtures" / "investing_52w_high.html").read_text(encoding="utf-8")
+
+    def fake_get(url, impersonate, timeout, headers):
+        return SimpleNamespace(status_code=200, text=html)
+
+    corps = [
+        SimpleNamespace(name="아이크래프트", ticker="052460", market="KOSDAQ"),
+        SimpleNamespace(name="벡트", ticker="365900", market="KOSDAQ"),
+        # '거래정지주'는 매핑 없음 + 거래량 0 → 이중으로 제외
+    ]
+
+    class FakeCollector:
+        def get_market_caps(self, date_str, market="ALL"):
+            return {"052460": 111, "365900": 222}
+        def get_sector_map(self, date_str, market):
+            return {"052460": "IT", "365900": "전기전자"}
+
+    highs, caps = inv.collect_investing_highs("20260803", FakeCollector(), corps, _get=fake_get)
+    names = sorted(h.name for h in highs)
+    assert names == ["벡트", "아이크래프트"]          # 거래정지주(거래량0) 제외
+    assert all(h.close_price > 0 for h in highs)
+    assert caps["052460"] == 111

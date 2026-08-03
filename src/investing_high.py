@@ -174,3 +174,18 @@ def build_highs(
             avg_volume_20d=0,
         ))
     return highs
+
+
+def collect_investing_highs(date_str, collector, corps, _get=None):
+    """investing 신고가 → 거래량 필터 → KRX 매핑 → 시총/섹터 보강 → StockHigh 목록."""
+    rows, _total = fetch_52w_high_rows(_get=_get)
+    rows = filter_tradeable(rows)
+    name_to_ticker = {c.name: c.ticker for c in corps}
+    name_to_market = {c.name: c.market for c in corps}
+    matched, _unmatched = resolve_to_krx(rows, name_to_ticker, name_to_market)
+    market_caps = collector.get_market_caps(date_str)
+    sector_map: dict[str, str] = {}
+    for m in ("KOSPI", "KOSDAQ"):
+        sector_map.update(collector.get_sector_map(date_str, m))
+    highs = build_highs(matched, market_caps, sector_map)
+    return highs, market_caps
