@@ -60,52 +60,24 @@ def run(
         result = existing
         highs = result.highs
     else:
+        from src.dart.cache import DartCache
         from src.collector import Collector
         from src.scanner import Scanner
+        from src.investing_high import collect_investing_highs, InvestingFetchError, InvestingParseError
 
         client = _make_client(settings)
         collector = Collector(client=client)
         scanner = Scanner(collector=collector)
+        corps = DartCache().load_corp_info(markets=["KOSPI", "KOSDAQ"])
 
-        # Step 1: Collect daily data
-        console.print("[dim]1/5 데이터 수집 중...[/dim]")
-        daily_data = collector.collect_daily(date_str, markets=config.scanner.markets)
+        console.print("[dim]1-3/5 investing.com 52주 신고가 수집 중...[/dim]")
+        try:
+            highs, market_caps = collect_investing_highs(date_str, collector, corps)
+        except (InvestingFetchError, InvestingParseError) as e:
+            console.print(f"[red]investing 신고가 수집 실패: {e}[/red]")
+            raise typer.Exit(code=1)
 
-        # Step 2: Get sector info and stock names
-        console.print("[dim]2/5 섹터 정보 수집 중...[/dim]")
-        sector_map = {}
-        name_map = {}
-        for market in ["KOSPI", "KOSDAQ"]:
-            sector_map.update(collector.get_sector_map(date_str, market))
-        for ticker in daily_data:
-            if ticker not in name_map:
-                try:
-                    name = client.get_market_ticker_name(ticker, date=date_str)
-                    if isinstance(name, str) and name:
-                        name_map[ticker] = name
-                        continue
-                except Exception:
-                    pass
-                try:
-                    name = client.get_etf_ticker_name(ticker, date=date_str)
-                    if isinstance(name, str) and name:
-                        name_map[ticker] = name
-                        continue
-                except Exception:
-                    pass
-                name_map[ticker] = ticker
-
-        # Step 3: Scan for 52-week highs
-        console.print("[dim]3/5 52주 신고가 스캔 중...[/dim]")
-        market_caps = collector.get_market_caps(date_str)
-        highs = scanner.find_new_highs(
-            daily_data=daily_data,
-            date_str=date_str,
-            sector_map=sector_map,
-            name_map=name_map,
-            lookback=config.scanner.lookback_days,
-        )
-        result = scanner.build_scan_result(scan_date, highs, len(daily_data))
+        result = scanner.build_scan_result(scan_date, highs, len(highs))
         db.save_scan_result(result)
 
     # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵; --force면 전체 재분석)
