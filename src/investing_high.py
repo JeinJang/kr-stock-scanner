@@ -73,7 +73,10 @@ def parse_high_rows(html: str) -> tuple[list[InvestingHighRow], int | None]:
     if not rows:
         raise InvestingParseError("_collection은 있으나 유효한 데이터 행이 없음")
 
-    total = len(collection)
+    total: int | None = None
+    m_total = re.search(r'"total"\s*:\s*(\d+)', html)
+    if m_total:
+        total = int(m_total.group(1))
     return rows, total
 
 

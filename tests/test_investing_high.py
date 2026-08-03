@@ -22,13 +22,53 @@ def test_filter_tradeable_drops_zero_volume():
 def test_parse_high_rows_extracts_next_data_collection_and_total():
     html = _FIXTURE.read_text(encoding="utf-8")
     rows, total = parse_high_rows(html)
-    assert total == 4  # _collection 전체 길이(오늘은 곧 전체 취득 건수)
+    # total은 _collection 길이가 아니라 JSON의 "total" 실제 신호(정규식)에서 옴.
+    # 이 픽스처는 total=4, _collection도 4건이라 커버리지 경고는 뜨지 않아야 정상.
+    assert total == 4
     assert [r.name for r in rows] == ["아이크래프트", "벡트", "거래정지주", "Foreign Co"]
     assert rows[0].ticker == "052460"
     assert rows[0].last_price == 5190.0
     assert rows[0].change_pct == 12.34
     assert rows[0].volume == 2_070_000
     assert rows[2].volume == 0  # 거래정지: volumeOneDay=0
+
+
+def test_parse_high_rows_total_reflects_json_signal_not_collection_length():
+    """total은 "total":N 정규식 신호를 그대로 반영해야 한다 — _collection 개수로
+    치환되면 신고가가 배치보다 많은 날의 커버리지 경고(total > len(rows))가
+    영원히 발동하지 않게 되어 조용한 누락을 놓친다."""
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"state":{"assetsCollectionStore":{"assetsCollection":'
+        '{"_collection":[{"name":"아이크래프트","symbol":"052460","last":5190.0,'
+        '"changeOneDayPercent":12.34,"volumeOneDay":2070000}]},'
+        '"pagination":{"total":9}}}}}}'
+        '</script>'
+    )
+    rows, total = parse_high_rows(html)
+    assert total == 9  # _collection은 1건뿐이지만 total은 JSON 신호 그대로 9
+    assert len(rows) == 1
+
+
+def test_fetch_52w_high_rows_warns_when_total_exceeds_fetched_rows():
+    """total(9) > len(rows)(1)일 때 커버리지 경고 로그가 실제로 발동하는지 확인."""
+    html = (
+        '<table></table>'
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"state":{"assetsCollectionStore":{"assetsCollection":'
+        '{"_collection":[{"name":"아이크래프트","symbol":"052460","last":5190.0,'
+        '"changeOneDayPercent":12.34,"volumeOneDay":2070000}]},'
+        '"pagination":{"total":9}}}}}}'
+        '</script>'
+    )
+
+    def fake_get(url, impersonate, timeout, headers):
+        return _Resp(200, html)
+
+    from src import investing_high as inv
+    rows, total = inv.fetch_52w_high_rows(_get=fake_get)
+    assert total == 9
+    assert len(rows) == 1  # 실제로 total > len(rows) 조건이 성립함을 재확인
 
 
 def test_parse_high_rows_raises_when_next_data_script_missing():
