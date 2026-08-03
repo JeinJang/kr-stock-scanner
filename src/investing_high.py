@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
-from bs4 import BeautifulSoup
 from loguru import logger
 
 from src.models import StockHigh
-from src.related.extractor import normalize_name
 
 
 class InvestingFetchError(RuntimeError):
@@ -20,29 +19,10 @@ class InvestingParseError(RuntimeError):
 @dataclass
 class InvestingHighRow:
     name: str
+    ticker: str
     last_price: float
     change_pct: float
     volume: int
-
-
-def _parse_volume(text: str) -> int:
-    """'2.07M'/'617.58K'/'1,234'/''/'-' → int (없으면 0)."""
-    if not text:
-        return 0
-    t = text.strip().upper().replace(",", "")
-    if t in ("", "-", "N/A"):
-        return 0
-    mult = 1
-    if t.endswith("K"):
-        mult, t = 1_000, t[:-1]
-    elif t.endswith("M"):
-        mult, t = 1_000_000, t[:-1]
-    elif t.endswith("B"):
-        mult, t = 1_000_000_000, t[:-1]
-    try:
-        return int(round(float(t) * mult))
-    except ValueError:
-        return 0
 
 
 def filter_tradeable(rows: list[InvestingHighRow]) -> list[InvestingHighRow]:
@@ -50,43 +30,50 @@ def filter_tradeable(rows: list[InvestingHighRow]) -> list[InvestingHighRow]:
     return [r for r in rows if r.volume > 0]
 
 
-def _clean_num(text: str) -> float:
-    t = (text or "").strip().replace(",", "").replace("%", "").replace("+", "")
-    try:
-        return float(t)
-    except ValueError:
-        return 0.0
+_NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 
 
 def parse_high_rows(html: str) -> tuple[list[InvestingHighRow], int | None]:
-    """investing 신고가 HTML → (행 목록, total). 표 없으면 InvestingParseError."""
-    soup = BeautifulSoup(html, "html.parser")
-    tables = soup.find_all("table")
-    if not tables:
-        raise InvestingParseError("데이터 표를 찾지 못함(Cloudflare 챌린지 또는 구조 변경)")
-    table = max(tables, key=lambda t: len(t.find_all("tr")))
+    """investing 신고가 페이지의 __NEXT_DATA__ JSON → (행 목록, total).
+
+    구조: props.pageProps.state.assetsCollectionStore.assetsCollection._collection
+    스크립트가 없거나 JSON이 깨졌거나 _collection 경로가 없으면 InvestingParseError.
+    """
+    m = _NEXT_DATA_RE.search(html)
+    if not m:
+        raise InvestingParseError("__NEXT_DATA__ 스크립트를 찾지 못함(Cloudflare 챌린지 또는 구조 변경)")
+    try:
+        data = json.loads(m.group(1))
+    except json.JSONDecodeError as e:
+        raise InvestingParseError(f"__NEXT_DATA__ JSON 파싱 실패: {e}") from e
+
+    try:
+        collection = (
+            data["props"]["pageProps"]["state"]["assetsCollectionStore"]
+            ["assetsCollection"]["_collection"]
+        )
+    except (KeyError, TypeError) as e:
+        raise InvestingParseError(f"_collection 경로를 찾지 못함: {e}") from e
 
     rows: list[InvestingHighRow] = []
-    for tr in table.find_all("tr"):
-        tds = tr.find_all("td")
-        if len(tds) < 7:
-            continue  # 헤더/빈 행
-        name = tds[1].get_text(strip=True)
-        if not name:
+    for item in collection:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        ticker = item.get("symbol")
+        if not name or not ticker:
             continue
         rows.append(InvestingHighRow(
             name=name,
-            last_price=_clean_num(tds[2].get_text(strip=True)),
-            change_pct=_clean_num(tds[5].get_text(strip=True)),
-            volume=_parse_volume(tds[6].get_text(strip=True)),
+            ticker=ticker,
+            last_price=float(item.get("last") or 0),
+            change_pct=float(item.get("changeOneDayPercent") or 0),
+            volume=int(item.get("volumeOneDay") or 0),
         ))
     if not rows:
-        raise InvestingParseError("표는 있으나 데이터 행이 없음")
+        raise InvestingParseError("_collection은 있으나 유효한 데이터 행이 없음")
 
-    total: int | None = None
-    m = re.search(r'"total"\s*:\s*(\d+)', html)
-    if m:
-        total = int(m.group(1))
+    total = len(collection)
     return rows, total
 
 
@@ -134,21 +121,17 @@ def fetch_52w_high_rows(_get=None) -> tuple[list[InvestingHighRow], int | None]:
 
 def resolve_to_krx(
     rows: list[InvestingHighRow],
-    name_to_ticker: dict[str, str],
-    name_to_market: dict[str, str],
+    ticker_to_market: dict[str, str],
 ) -> tuple[list[tuple[InvestingHighRow, str, str]], list[str]]:
-    norm_to_ticker = {normalize_name(k): v for k, v in name_to_ticker.items()}
-    norm_to_market = {normalize_name(k): v for k, v in name_to_market.items()}
+    """행의 symbol(ticker)로 직접 KRX 유니버스와 매칭 — 이름 정규화 불필요."""
     matched: list[tuple[InvestingHighRow, str, str]] = []
     unmatched: list[str] = []
     for row in rows:
-        key = normalize_name(row.name)
-        ticker = name_to_ticker.get(row.name) or norm_to_ticker.get(key)
-        if ticker is None:
+        market = ticker_to_market.get(row.ticker)
+        if market is None:
             unmatched.append(row.name)
             continue
-        market = name_to_market.get(row.name) or norm_to_market.get(key) or ""
-        matched.append((row, ticker, market))
+        matched.append((row, row.ticker, market))
     if unmatched:
         logger.warning(f"investing 미매칭 {len(unmatched)}종목: {unmatched[:20]}")
     return matched, unmatched
@@ -180,9 +163,8 @@ def collect_investing_highs(date_str, collector, corps, _get=None):
     """investing 신고가 → 거래량 필터 → KRX 매핑 → 시총/섹터 보강 → StockHigh 목록."""
     rows, _total = fetch_52w_high_rows(_get=_get)
     rows = filter_tradeable(rows)
-    name_to_ticker = {c.name: c.ticker for c in corps}
-    name_to_market = {c.name: c.market for c in corps}
-    matched, _unmatched = resolve_to_krx(rows, name_to_ticker, name_to_market)
+    ticker_to_market = {c.ticker: c.market for c in corps}
+    matched, _unmatched = resolve_to_krx(rows, ticker_to_market)
     market_caps = collector.get_market_caps(date_str)
     sector_map: dict[str, str] = {}
     for m in ("KOSPI", "KOSDAQ"):

@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 from src.investing_high import (
-    InvestingHighRow, _parse_volume, filter_tradeable,
+    InvestingHighRow, filter_tradeable,
     InvestingFetchError, InvestingParseError, parse_high_rows, _fetch_html,
     resolve_to_krx, build_highs,
 )
@@ -10,39 +10,43 @@ from src.models import StockHigh
 _FIXTURE = Path(__file__).parent / "fixtures" / "investing_52w_high.html"
 
 
-def test_parse_volume_suffixes():
-    assert _parse_volume("2.07M") == 2_070_000
-    assert _parse_volume("617.58K") == 617_580
-    assert _parse_volume("1,234") == 1234
-    assert _parse_volume("131.15K") == 131_150
-    for empty in ("", "-", "N/A", "  "):
-        assert _parse_volume(empty) == 0
-
-
 def test_filter_tradeable_drops_zero_volume():
     rows = [
-        InvestingHighRow(name="A", last_price=100.0, change_pct=1.0, volume=5000),
-        InvestingHighRow(name="B", last_price=200.0, change_pct=2.0, volume=0),
+        InvestingHighRow(name="A", ticker="000001", last_price=100.0, change_pct=1.0, volume=5000),
+        InvestingHighRow(name="B", ticker="000002", last_price=200.0, change_pct=2.0, volume=0),
     ]
     out = filter_tradeable(rows)
     assert [r.name for r in out] == ["A"]
 
 
-def test_parse_high_rows_extracts_all_rows_and_total():
+def test_parse_high_rows_extracts_next_data_collection_and_total():
     html = _FIXTURE.read_text(encoding="utf-8")
     rows, total = parse_high_rows(html)
-    assert total == 3
-    assert [r.name for r in rows] == ["아이크래프트", "벡트", "거래정지주"]
+    assert total == 4  # _collection 전체 길이(오늘은 곧 전체 취득 건수)
+    assert [r.name for r in rows] == ["아이크래프트", "벡트", "거래정지주", "Foreign Co"]
+    assert rows[0].ticker == "052460"
     assert rows[0].last_price == 5190.0
     assert rows[0].change_pct == 12.34
     assert rows[0].volume == 2_070_000
-    assert rows[2].volume == 0  # 거래량 '-'
+    assert rows[2].volume == 0  # 거래정지: volumeOneDay=0
 
 
-def test_parse_high_rows_raises_on_challenge():
+def test_parse_high_rows_raises_when_next_data_script_missing():
     challenge = "<html><head><title>Just a moment...</title></head><body></body></html>"
     with pytest.raises(InvestingParseError):
         parse_high_rows(challenge)
+
+
+def test_parse_high_rows_raises_on_invalid_json():
+    html = '<script id="__NEXT_DATA__" type="application/json">{not valid json</script>'
+    with pytest.raises(InvestingParseError):
+        parse_high_rows(html)
+
+
+def test_parse_high_rows_raises_when_collection_path_absent():
+    html = '<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{}}}</script>'
+    with pytest.raises(InvestingParseError):
+        parse_high_rows(html)
 
 
 class _Resp:
@@ -70,20 +74,19 @@ def test_fetch_html_raises_when_all_targets_blocked():
         _fetch_html("http://x", ("chrome124", "safari17_0"), _get=fake_get)
 
 
-def test_resolve_to_krx_maps_and_reports_unmatched():
+def test_resolve_to_krx_maps_by_ticker_and_reports_unmatched():
     rows = [
-        InvestingHighRow(name="아이크래프트", last_price=5190.0, change_pct=12.34, volume=2_070_000),
-        InvestingHighRow(name="없는회사", last_price=1000.0, change_pct=1.0, volume=100),
+        InvestingHighRow(name="아이크래프트", ticker="052460", last_price=5190.0, change_pct=12.34, volume=2_070_000),
+        InvestingHighRow(name="Foreign Co", ticker="US1234567890", last_price=42.5, change_pct=3.21, volume=150_000),
     ]
-    n2t = {"아이크래프트": "052460"}
-    n2m = {"아이크래프트": "KOSDAQ"}
-    matched, unmatched = resolve_to_krx(rows, n2t, n2m)
+    ticker_to_market = {"052460": "KOSDAQ"}
+    matched, unmatched = resolve_to_krx(rows, ticker_to_market)
     assert [(m[1], m[2]) for m in matched] == [("052460", "KOSDAQ")]
-    assert unmatched == ["없는회사"]
+    assert unmatched == ["Foreign Co"]
 
 
 def test_build_highs_assembles_stockhigh():
-    row = InvestingHighRow(name="아이크래프트", last_price=5190.0, change_pct=12.34, volume=2_070_000)
+    row = InvestingHighRow(name="아이크래프트", ticker="052460", last_price=5190.0, change_pct=12.34, volume=2_070_000)
     matched = [(row, "052460", "KOSDAQ")]
     highs = build_highs(matched, market_caps={"052460": 123}, sector_map={"052460": "IT"})
     assert len(highs) == 1
@@ -107,7 +110,7 @@ def test_collect_investing_highs_end_to_end(monkeypatch):
     corps = [
         SimpleNamespace(name="아이크래프트", ticker="052460", market="KOSDAQ"),
         SimpleNamespace(name="벡트", ticker="365900", market="KOSDAQ"),
-        # '거래정지주'는 매핑 없음 + 거래량 0 → 이중으로 제외
+        # '거래정지주'(volumeOneDay=0)와 'Foreign Co'(유니버스 밖 ticker)는 매핑되어도/안 되어도 제외 대상
     ]
 
     class FakeCollector:
@@ -118,6 +121,6 @@ def test_collect_investing_highs_end_to_end(monkeypatch):
 
     highs, caps = inv.collect_investing_highs("20260803", FakeCollector(), corps, _get=fake_get)
     names = sorted(h.name for h in highs)
-    assert names == ["벡트", "아이크래프트"]          # 거래정지주(거래량0) 제외
+    assert names == ["벡트", "아이크래프트"]          # 거래정지주(거래량0), Foreign Co(미매칭) 제외
     assert all(h.close_price > 0 for h in highs)
     assert caps["052460"] == 111
