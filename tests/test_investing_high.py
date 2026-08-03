@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 from src.investing_high import (
     InvestingHighRow, _parse_volume, filter_tradeable,
-    InvestingFetchError, InvestingParseError, parse_high_rows,
+    InvestingFetchError, InvestingParseError, parse_high_rows, _fetch_html,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "investing_52w_high.html"
@@ -41,3 +41,28 @@ def test_parse_high_rows_raises_on_challenge():
     challenge = "<html><head><title>Just a moment...</title></head><body></body></html>"
     with pytest.raises(InvestingParseError):
         parse_high_rows(challenge)
+
+
+class _Resp:
+    def __init__(self, status, text):
+        self.status_code = status
+        self.text = text
+
+
+def test_fetch_html_falls_back_to_next_target():
+    calls = []
+    def fake_get(url, impersonate, timeout, headers):
+        calls.append(impersonate)
+        if impersonate == "chrome124":
+            return _Resp(403, "403")               # 첫 타깃 차단
+        return _Resp(200, "<table><tr><td>x</td></tr></table>")  # 둘째 성공
+    html = _fetch_html("http://x", ("chrome124", "safari17_0"), _get=fake_get)
+    assert "<table>" in html
+    assert calls == ["chrome124", "safari17_0"]
+
+
+def test_fetch_html_raises_when_all_targets_blocked():
+    def fake_get(url, impersonate, timeout, headers):
+        return _Resp(403, "403")
+    with pytest.raises(InvestingFetchError):
+        _fetch_html("http://x", ("chrome124", "safari17_0"), _get=fake_get)
