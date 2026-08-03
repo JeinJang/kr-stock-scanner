@@ -3,7 +3,9 @@ import pytest
 from src.investing_high import (
     InvestingHighRow, _parse_volume, filter_tradeable,
     InvestingFetchError, InvestingParseError, parse_high_rows, _fetch_html,
+    resolve_to_krx, build_highs,
 )
+from src.models import StockHigh
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "investing_52w_high.html"
 
@@ -66,3 +68,27 @@ def test_fetch_html_raises_when_all_targets_blocked():
         return _Resp(403, "403")
     with pytest.raises(InvestingFetchError):
         _fetch_html("http://x", ("chrome124", "safari17_0"), _get=fake_get)
+
+
+def test_resolve_to_krx_maps_and_reports_unmatched():
+    rows = [
+        InvestingHighRow(name="아이크래프트", last_price=5190.0, change_pct=12.34, volume=2_070_000),
+        InvestingHighRow(name="없는회사", last_price=1000.0, change_pct=1.0, volume=100),
+    ]
+    n2t = {"아이크래프트": "052460"}
+    n2m = {"아이크래프트": "KOSDAQ"}
+    matched, unmatched = resolve_to_krx(rows, n2t, n2m)
+    assert [(m[1], m[2]) for m in matched] == [("052460", "KOSDAQ")]
+    assert unmatched == ["없는회사"]
+
+
+def test_build_highs_assembles_stockhigh():
+    row = InvestingHighRow(name="아이크래프트", last_price=5190.0, change_pct=12.34, volume=2_070_000)
+    matched = [(row, "052460", "KOSDAQ")]
+    highs = build_highs(matched, market_caps={"052460": 123}, sector_map={"052460": "IT"})
+    assert len(highs) == 1
+    h = highs[0]
+    assert isinstance(h, StockHigh)
+    assert (h.ticker, h.market, h.sector) == ("052460", "KOSDAQ", "IT")
+    assert h.close_price == 5190.0 and h.volume == 2_070_000
+    assert h.breakout_pct == 12.34

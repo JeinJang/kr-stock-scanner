@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from loguru import logger
 
+from src.models import StockHigh
+from src.related.extractor import normalize_name
+
 
 class InvestingFetchError(RuntimeError):
     """investing.com 취득 실패(Cloudflare 챌린지/403 등)."""
@@ -127,3 +130,47 @@ def fetch_52w_high_rows(_get=None) -> tuple[list[InvestingHighRow], int | None]:
             f"페이지네이션 미구현으로 초기 배치만 사용합니다."
         )
     return rows, total
+
+
+def resolve_to_krx(
+    rows: list[InvestingHighRow],
+    name_to_ticker: dict[str, str],
+    name_to_market: dict[str, str],
+) -> tuple[list[tuple[InvestingHighRow, str, str]], list[str]]:
+    norm_to_ticker = {normalize_name(k): v for k, v in name_to_ticker.items()}
+    norm_to_market = {normalize_name(k): v for k, v in name_to_market.items()}
+    matched: list[tuple[InvestingHighRow, str, str]] = []
+    unmatched: list[str] = []
+    for row in rows:
+        key = normalize_name(row.name)
+        ticker = name_to_ticker.get(row.name) or norm_to_ticker.get(key)
+        if ticker is None:
+            unmatched.append(row.name)
+            continue
+        market = name_to_market.get(row.name) or norm_to_market.get(key) or ""
+        matched.append((row, ticker, market))
+    if unmatched:
+        logger.warning(f"investing 미매칭 {len(unmatched)}종목: {unmatched[:20]}")
+    return matched, unmatched
+
+
+def build_highs(
+    matched: list[tuple[InvestingHighRow, str, str]],
+    market_caps: dict[str, int],
+    sector_map: dict[str, str],
+) -> list[StockHigh]:
+    highs: list[StockHigh] = []
+    for row, ticker, market in matched:
+        highs.append(StockHigh(
+            ticker=ticker,
+            name=row.name,
+            market=market,
+            sector=sector_map.get(ticker, "기타"),
+            close_price=row.last_price,
+            high_52w=row.last_price,
+            prev_high_52w=0.0,
+            breakout_pct=row.change_pct,
+            volume=row.volume,
+            avg_volume_20d=0,
+        ))
+    return highs
