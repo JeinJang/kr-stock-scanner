@@ -54,3 +54,10 @@ def test_metrics_new_fields_default_to_none():
     m = FundamentalsMetrics(ticker="X", as_of_date=date(2026, 1, 1))
     assert m.eps is None
     assert m.consecutive_dividend_years is None
+
+
+def test_metrics_carries_fs_basis():
+    from datetime import date
+    from src.fundamentals.models import FundamentalsMetrics
+    m = FundamentalsMetrics(ticker="051910", as_of_date=date(2026, 8, 8), fs_basis="CFS")
+    assert m.fs_basis == "CFS"

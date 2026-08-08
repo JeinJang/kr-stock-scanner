@@ -43,6 +43,7 @@ class MetricsRow(FundamentalsBase):
     dividend_yield = Column(Float, nullable=True)
     payout_ratio = Column(Float, nullable=True)
     consecutive_dividend_years = Column(Integer, nullable=True)
+    fs_basis = Column(String(8), nullable=True)
 
 
 class ScoreRow(FundamentalsBase):
@@ -79,6 +80,7 @@ def _migrate_add_enrichment_columns(engine) -> None:
         ("dividend_yield", "FLOAT"),
         ("payout_ratio", "FLOAT"),
         ("consecutive_dividend_years", "INTEGER"),
+        ("fs_basis", "VARCHAR(8)"),
     ]
     with engine.begin() as conn:
         for name, sqltype in to_add:
@@ -113,6 +115,7 @@ class FundamentalsDB:
                     ocf=m.ocf, fcf=m.fcf, capex_to_revenue=m.capex_to_revenue,
                     dividend_yield=m.dividend_yield, payout_ratio=m.payout_ratio,
                     consecutive_dividend_years=m.consecutive_dividend_years,
+                    fs_basis=m.fs_basis,
                 ))
             session.commit()
 
@@ -170,6 +173,7 @@ class FundamentalsDB:
                     ocf=r.ocf, fcf=r.fcf, capex_to_revenue=r.capex_to_revenue,
                     dividend_yield=r.dividend_yield, payout_ratio=r.payout_ratio,
                     consecutive_dividend_years=r.consecutive_dividend_years,
+                    fs_basis=r.fs_basis,
                 )
                 for r in rows
             ]

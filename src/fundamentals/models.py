@@ -47,6 +47,9 @@ class FundamentalsMetrics(BaseModel):
     payout_ratio: float | None = None          # %
     consecutive_dividend_years: int | None = None
 
+    # Financial statement basis (new)
+    fs_basis: str | None = None   # "CFS" | "OFS" | "MIXED" | "UNKNOWN"
+
 
 class ScoreCard(BaseModel):
     """4-dimension scores plus total and categories."""
