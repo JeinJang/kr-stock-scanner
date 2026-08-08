@@ -106,7 +106,9 @@ SQL
 
 `fundamentals_metrics`는 단일 시점 요약이라 사이클 회복/하락 같은 **추세 변화**가 가려집니다. `dart_financials` 원천에서 연도별로 직접 뽑아 트렌드 표를 만드세요.
 
-`dart_financials`는 같은 `(year, account)`에 **연결/별도 두 행**이 들어 있는 경우가 많고, 당기순이익은 지배/비지배 분리로 4행까지 들어옵니다. **`MAX(value)`로 통일**해 연결재무제표 기준에 가깝게 사용하세요.
+`dart_financials`는 같은 `(year, account)`에 **연결(CFS)/별도(OFS) 두 행**이 들어 있습니다. 위 SQL은 `fs_div` 기준으로 **연결을 우선 선택**하고, 해당 연도에 연결이 없을 때만 별도로 폴백합니다.
+
+⚠ 과거에 쓰던 `MAX(value)` 방식은 계정마다 연결·별도를 다르게 집어 **존재하지 않는 실적**을 만들었습니다(예: LG화학 2025년 당기순이익이 연결 -9,771억인데 +13,680억으로 표시). 결과에 `fs_div` 컬럼을 함께 뽑아 어느 기준인지 확인하고, 폴백이 섞였다면 리포트에 명시하세요.
 
 단위 환산: `dart_financials.value`는 **원 단위**이므로 보고서 표시는 `/1e8` (억원)으로 변환.
 
@@ -116,12 +118,19 @@ sqlite3 data/scanner.db <<SQL
 .mode column
 
 WITH t AS (SELECT corp_code FROM dart_corp_info WHERE ticker = '$ARGUMENTS'),
+-- 연결(CFS) 우선, 해당 연도에 연결이 없으면 별도(OFS)로 폴백합니다.
+-- fs_div 가 NULL 인 구버전 데이터는 마지막 순위로 둡니다.
 base AS (
-  SELECT year, account, MAX(value) AS v
-  FROM dart_financials
-  WHERE corp_code = (SELECT corp_code FROM t) AND quarter = 0
-    AND account IN ('매출액','영업이익','당기순이익','자산총계','자본총계','부채총계','유동자산','유동부채','이익잉여금')
-  GROUP BY year, account
+  SELECT year, account, v FROM (
+    SELECT year, account, value AS v,
+           ROW_NUMBER() OVER (
+             PARTITION BY year, account
+             ORDER BY CASE fs_div WHEN 'CFS' THEN 0 WHEN 'OFS' THEN 1 ELSE 2 END, id
+           ) AS rn
+    FROM dart_financials
+    WHERE corp_code = (SELECT corp_code FROM t) AND quarter = 0
+      AND account IN ('매출액','영업이익','당기순이익','자산총계','자본총계','부채총계','유동자산','유동부채','이익잉여금')
+  ) WHERE rn = 1
 ),
 piv AS (
   SELECT
@@ -350,3 +359,6 @@ DART 데이터는 갱신하지 않습니다 (연 1회 사업보고서 단위라 
 - **투자 추천 문구 금지** ("매수 추천", "사세요" 같은 표현 X). 분석가 입장에서 사실 + 해석만 제공.
 - 본문 길이는 600-1,000자 내외. 표/부록은 별도 카운트.
 - **파일 저장을 잊지 말 것.** 채팅 응답만 하고 파일을 만들지 않으면 작업 미완료.
+- **`fundamentals_metrics`의 산출 기준 확인:** `fs_basis` 컬럼이 `CFS`면 연결, `OFS`면 별도(지주사·비연결 기업), `MIXED`면 일부 연도가 폴백된 것입니다. `MIXED`이거나 `UNKNOWN`이면 시계열 표와 대조해 검증하고 리포트에 명시하세요.
+- **`fundamentals_scores.coverage`가 4 미만이면** 산출 불가한 차원이 있다는 뜻입니다(상장 2년 미만 등). 등급을 액면 그대로 읽지 마세요.
+- **`fundamentals_metrics.roe`·`roic`는 단년이 아니라 최근 3개년 평균입니다.** 적자 연도가 섞이면 평균이 0 근처로 눌리므로(예: RF시스템즈 2024년 -9.78% / 2025년 +10.44% → 평균 0.33%), 단년 수익성을 보려면 시계열 표에서 직접 계산하세요.
