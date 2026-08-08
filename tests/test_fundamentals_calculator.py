@@ -327,3 +327,19 @@ def test_compute_metrics_uses_consolidated_not_separate():
     assert m.fs_basis == "CFS"
     # 연결 기준 ROE = 250/15233 = 1.64%
     assert m.roe == pytest.approx(1.64, abs=0.05)
+
+
+def test_early_return_when_no_equity_still_sets_fs_basis():
+    """자본총계가 없어 조기 반환하는 경로도 fs_basis 를 CFS/OFS/MIXED/UNKNOWN 중 하나로 채워야 합니다.
+
+    이전에는 fs_basis 인자 없이 FundamentalsMetrics 를 만들어 None 이 남았는데,
+    문서화된 4개 상태(CFS/OFS/MIXED/UNKNOWN) 밖의 5번째 상태가 되는 문제가 있었습니다.
+    """
+    stmts = [
+        FinancialStatement(corp_code="C", year=2025, quarter=0,
+                            account="영업이익", value=100.0, fs_div="CFS"),
+    ]
+    m = compute_metrics(ticker="000000", corp_code="C", statements=stmts,
+                        market_yearly=[], as_of=date(2026, 8, 8))
+    assert m.fs_basis == "CFS"
+    assert m.roe is None

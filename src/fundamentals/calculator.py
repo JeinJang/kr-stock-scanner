@@ -67,7 +67,7 @@ def compute_metrics(
     current_liabilities = _account_values_by_year(statements, "유동부채")
 
     if not equity:
-        return FundamentalsMetrics(ticker=ticker, as_of_date=as_of)
+        return FundamentalsMetrics(ticker=ticker, as_of_date=as_of, fs_basis=fs_basis)
 
     latest_year = max(equity.keys())
     latest_revenue = revenue.get(latest_year)
