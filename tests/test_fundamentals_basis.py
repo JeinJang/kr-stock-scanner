@@ -53,3 +53,29 @@ def test_unknown_when_fs_div_missing():
 def test_select_basis_matches_filter_to_basis():
     stmts = [_s(2025, "영업이익", 1.0, "CFS"), _s(2025, "영업이익", 2.0, "OFS")]
     assert select_basis(stmts) == "CFS"
+
+
+def test_does_not_fill_missing_account_within_a_year_that_has_primary_basis():
+    """연결이 있는 연도 안에서는 없는 계정을 별도로 메우지 않습니다.
+
+    실측 사례(대구백화점 006370, 2025): 연결에 매출액이 없는데 별도 매출액으로 메우면
+    OPM이 '연결 영업이익 ÷ 별도 매출액'이라는, 어느 재무제표에도 없는 값이 됩니다.
+    """
+    stmts = [
+        _s(2025, "영업이익", -15_000_000_000.0, "CFS"),
+        _s(2025, "매출액", 47_200_000_000.0, "OFS"),
+    ]
+    out, basis = filter_to_basis(stmts)
+    assert basis == "CFS"
+    assert {s.account for s in out} == {"영업이익"}
+
+
+def test_quarterly_and_annual_are_independent_for_fallback():
+    """연간(quarter=0)과 분기(quarter=1)는 서로의 폴백 판정에 영향을 주지 않습니다."""
+    stmts = [
+        _s(2025, "영업이익", 300.0, "CFS", quarter=0),
+        _s(2025, "영업이익", 80.0, "OFS", quarter=1),
+    ]
+    out, basis = filter_to_basis(stmts)
+    assert basis == "MIXED"
+    assert {(s.quarter, s.value) for s in out} == {(0, 300.0), (1, 80.0)}
