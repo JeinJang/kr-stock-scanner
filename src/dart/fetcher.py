@@ -162,6 +162,10 @@ class DartFetcher:
                         continue
 
                     ok_count += 1
+                    # 각 배치 응답 처리 직전에 만들어야 합니다 — 루프 바깥에 두면
+                    # 배치 간 정상 데이터가 지워집니다. corp_code가 키에 포함되므로
+                    # 배치 안에서만 유효하면 충분합니다.
+                    seen: set[tuple[str, int, int, str, str | None]] = set()
                     for row in data.get("list", []):
                         account_nm = row.get("account_nm", "")
                         canonical = ACCOUNT_NORMALIZE.get(account_nm)
@@ -174,12 +178,22 @@ class DartFetcher:
                         except ValueError:
                             continue
 
+                        corp = row.get("corp_code", "")
+                        fs_div = row.get("fs_div") or None
+                        quarter = report_to_quarter[report_code]
+                        key = (corp, year, quarter, canonical, fs_div)
+                        if key in seen:
+                            # DART가 같은 계정을 ord만 달리해 중복 반환하는 경우 첫 행만 채택합니다.
+                            continue
+                        seen.add(key)
+
                         statements.append(FinancialStatement(
-                            corp_code=row.get("corp_code", ""),
+                            corp_code=corp,
                             year=year,
-                            quarter=report_to_quarter[report_code],
+                            quarter=quarter,
                             account=canonical,
                             value=value,
+                            fs_div=fs_div,
                         ))
 
                     if batch_idx % 20 == 0:
