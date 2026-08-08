@@ -122,3 +122,24 @@ async def test_fetch_financials_dedupes_repeated_account_within_same_basis():
     out = await f.fetch_financials(["X"], [2025], ["11011"])
     assert len(out) == 1
     assert out[0].fs_div == "CFS"
+
+
+@pytest.mark.asyncio
+async def test_fetch_financials_normalizes_unknown_fs_div_to_none():
+    """CFS/OFS 가 아닌 fs_div 값은 조용히 버리지 않고 None 으로 정규화해야 합니다.
+
+    filter_to_basis 는 CFS/OFS 가 아닌 행을 1차·2차 어느 기준에도 매칭하지 않아
+    버리므로, 새로운 구분값이 나오면 fs_div 를 None 으로 낮춰 UNKNOWN 경로로
+    빠지게 해야 무음 데이터 손실을 막을 수 있습니다.
+    """
+    payload = {
+        "status": "000",
+        "list": [
+            {"corp_code": "X", "fs_div": "CFS2", "sj_div": "IS",
+             "account_nm": "영업이익", "thstrm_amount": "100"},
+        ],
+    }
+    f = DartFetcher(client=_StubClient(payload))
+    out = await f.fetch_financials(["X"], [2025], ["11011"])
+    assert len(out) == 1
+    assert out[0].fs_div is None

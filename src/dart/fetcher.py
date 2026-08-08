@@ -59,11 +59,15 @@ ACCOUNT_NORMALIZE = {
 }
 
 
+VALID_FS_DIVS = {"CFS", "OFS"}
+
+
 class DartFetcher:
     """Fetches corp universe and financial statements via DART API."""
 
     def __init__(self, client: DartClient):
         self._client = client
+        self._warned_fs_divs: set[str] = set()
 
     async def _download_corp_zip(self) -> bytes:
         """Download the corpCode.xml ZIP file."""
@@ -180,6 +184,14 @@ class DartFetcher:
 
                         corp = row.get("corp_code", "")
                         fs_div = row.get("fs_div") or None
+                        if fs_div is not None and fs_div not in VALID_FS_DIVS:
+                            if fs_div not in self._warned_fs_divs:
+                                self._warned_fs_divs.add(fs_div)
+                                logger.warning(
+                                    f"알 수 없는 fs_div 값 '{fs_div}' 을(를) None 으로 "
+                                    "정규화합니다 (CFS/OFS 가 아님)."
+                                )
+                            fs_div = None
                         quarter = report_to_quarter[report_code]
                         key = (corp, year, quarter, canonical, fs_div)
                         if key in seen:
