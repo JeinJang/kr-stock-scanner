@@ -37,6 +37,20 @@ def test_save_and_load_financials(cache):
     assert "영업이익" in accounts
 
 
+def test_save_and_load_preserves_fs_div(tmp_path):
+    db_url = f"sqlite:///{tmp_path}/t.db"
+    cache = DartCache(url=db_url)
+    cache.save_financials([
+        FinancialStatement(corp_code="X", year=2025, quarter=0,
+                           account="영업이익", value=100.0, fs_div="CFS"),
+        FinancialStatement(corp_code="X", year=2025, quarter=0,
+                           account="영업이익", value=-50.0, fs_div="OFS"),
+    ])
+    rows = cache.load_financials(corp_codes=["X"])
+    by_div = {r.fs_div: r.value for r in rows}
+    assert by_div == {"CFS": 100.0, "OFS": -50.0}
+
+
 def test_meta_last_updated(cache):
     assert cache.last_updated() is None
     cache.set_last_updated(datetime(2026, 4, 1, 12, 0))

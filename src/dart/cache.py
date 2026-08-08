@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime,
-    create_engine, delete, select,
+    create_engine, delete, select, inspect, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -31,6 +31,7 @@ class DartFinancialRow(DartBase):
     quarter = Column(Integer, nullable=False)
     account = Column(String(50), nullable=False)
     value = Column(Float, nullable=False)
+    fs_div = Column(String(3), nullable=True, index=True)  # "CFS" | "OFS" | None
 
 
 class DartMetaRow(DartBase):
@@ -45,6 +46,17 @@ class DartCache:
     def __init__(self, url: str = "sqlite:///data/scanner.db"):
         self.engine = create_engine(url)
         DartBase.metadata.create_all(self.engine)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """기존 dart_financials 테이블에 fs_div 컬럼을 더합니다(없을 때만)."""
+        insp = inspect(self.engine)
+        if "dart_financials" not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns("dart_financials")}
+        if "fs_div" not in cols:
+            with self.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE dart_financials ADD COLUMN fs_div VARCHAR(3)"))
 
     def save_corp_info(self, corps: list[CorpInfo]) -> None:
         with Session(self.engine) as session:
@@ -77,7 +89,7 @@ class DartCache:
             for s in statements:
                 session.add(DartFinancialRow(
                     corp_code=s.corp_code, year=s.year, quarter=s.quarter,
-                    account=s.account, value=s.value,
+                    account=s.account, value=s.value, fs_div=s.fs_div,
                 ))
             session.commit()
 
@@ -92,7 +104,7 @@ class DartCache:
             return [
                 FinancialStatement(
                     corp_code=r.corp_code, year=r.year, quarter=r.quarter,
-                    account=r.account, value=r.value,
+                    account=r.account, value=r.value, fs_div=r.fs_div,
                 )
                 for r in rows
             ]
