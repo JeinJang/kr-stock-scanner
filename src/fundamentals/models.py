@@ -63,3 +63,4 @@ class ScoreCard(BaseModel):
     total_score: float                        # 0-100
     grade: str                                # ★★★★★ etc.
     categories: list[str] = []                # ["Quality", "GARP"] etc.
+    coverage: int = 4                         # 산출된 차원 수 (0~4)

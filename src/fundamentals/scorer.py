@@ -95,12 +95,14 @@ def score(m: FundamentalsMetrics) -> ScoreCard:
     cf = _cashflow(m)
 
     available = [s for s in (liq, prof, growth, cf) if s is not None]
+    coverage = len(available)
     if not available:
         total = 0.0
     else:
-        # Each dimension is 0-25; scale to 0-100 by averaging available, multiplying by 4
-        avg = sum(available) / len(available)
-        total = avg * 4  # because avg is /25, so /25 * 4 = /100
+        # 각 차원은 0~25점입니다. 결측 차원을 0점으로 두고 100점 만점으로 환산해,
+        # 산출 가능한 차원이 적을수록 총점이 낮아지도록 합니다.
+        # (기존에는 available 만 평균 내고 ×4 를 해, 2개 차원만 만점이어도 100점이 됐습니다.)
+        total = sum(available)
     total = round(total, 1)
 
     return ScoreCard(
@@ -113,4 +115,5 @@ def score(m: FundamentalsMetrics) -> ScoreCard:
         total_score=total,
         grade=_grade_for(total),
         categories=[],  # filled by classifier
+        coverage=coverage,
     )

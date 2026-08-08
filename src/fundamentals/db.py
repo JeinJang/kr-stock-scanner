@@ -58,6 +58,7 @@ class ScoreRow(FundamentalsBase):
     total_score = Column(Float, nullable=False)
     grade = Column(String(10), nullable=False)
     categories = Column(String(200), nullable=False)  # JSON-encoded list
+    coverage = Column(Integer, nullable=True)  # 산출된 차원 수 (0~4)
 
 
 def _migrate_add_enrichment_columns(engine) -> None:
@@ -88,6 +89,21 @@ def _migrate_add_enrichment_columns(engine) -> None:
                 conn.execute(text(f"ALTER TABLE fundamentals_metrics ADD COLUMN {name} {sqltype}"))
 
 
+def _migrate_add_score_coverage_column(engine) -> None:
+    """Idempotent ALTER for fundamentals_scores.coverage. Safe to run
+    repeatedly and safe to call even if the table does not exist yet."""
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    try:
+        existing = {col["name"] for col in insp.get_columns("fundamentals_scores")}
+    except Exception:
+        # Table doesn't exist yet; create_all will create it with the column directly.
+        return
+    if "coverage" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE fundamentals_scores ADD COLUMN coverage INTEGER"))
+
+
 class FundamentalsDB:
     """Persistence for derived metrics and scores."""
 
@@ -95,6 +111,7 @@ class FundamentalsDB:
         self.engine = create_engine(url)
         FundamentalsBase.metadata.create_all(self.engine)
         _migrate_add_enrichment_columns(self.engine)
+        _migrate_add_score_coverage_column(self.engine)
 
     def save_metrics(self, metrics: list[FundamentalsMetrics]) -> None:
         if not metrics:
@@ -133,6 +150,7 @@ class FundamentalsDB:
                     growth_score=s.growth_score, cashflow_score=s.cashflow_score,
                     total_score=s.total_score, grade=s.grade,
                     categories=json.dumps(s.categories, ensure_ascii=False),
+                    coverage=s.coverage,
                 ))
             session.commit()
 
@@ -149,6 +167,9 @@ class FundamentalsDB:
                     growth_score=r.growth_score, cashflow_score=r.cashflow_score,
                     total_score=r.total_score, grade=r.grade,
                     categories=json.loads(r.categories),
+                    # 마이그레이션 이전에 저장된 레거시 행은 coverage가 NULL일 수 있으므로
+                    # 기본값(4개 차원 모두 산출)으로 대체합니다.
+                    coverage=r.coverage if r.coverage is not None else 4,
                 )
                 for r in rows
             ]
