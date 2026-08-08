@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from src.dart.models import FinancialStatement
+from src.fundamentals.basis import filter_to_basis
 from src.fundamentals.models import FundamentalsMetrics
 from src.market_data.models import MarketYearly
 
@@ -52,6 +53,9 @@ def compute_metrics(
           shares_ly       -> the market_yearly row whose year == latest_year (the year that
                              produced the LY financials)
     """
+    # 연결/별도가 섞이지 않도록 계산 전에 한 기준으로 통일합니다.
+    statements, fs_basis = filter_to_basis(statements)
+
     # --- pivot existing accounts ---
     revenue = _account_values_by_year(statements, "매출액")
     op_income = _account_values_by_year(statements, "영업이익")
@@ -63,7 +67,7 @@ def compute_metrics(
     current_liabilities = _account_values_by_year(statements, "유동부채")
 
     if not equity:
-        return FundamentalsMetrics(ticker=ticker, as_of_date=as_of)
+        return FundamentalsMetrics(ticker=ticker, as_of_date=as_of, fs_basis=fs_basis)
 
     latest_year = max(equity.keys())
     latest_revenue = revenue.get(latest_year)
@@ -149,7 +153,7 @@ def compute_metrics(
         consecutive_dividend_years = _count_consecutive_dividends(dividend_by_year)
 
     return FundamentalsMetrics(
-        ticker=ticker, as_of_date=as_of,
+        ticker=ticker, as_of_date=as_of, fs_basis=fs_basis,
         current_ratio=current_ratio, debt_ratio=debt_ratio_pct,
         roe=roe_avg, roic=roic_avg, operating_margin=operating_margin,
         revenue_cagr_3y=revenue_cagr, op_income_cagr_3y=op_income_cagr,

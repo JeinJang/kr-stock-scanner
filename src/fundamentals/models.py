@@ -47,6 +47,9 @@ class FundamentalsMetrics(BaseModel):
     payout_ratio: float | None = None          # %
     consecutive_dividend_years: int | None = None
 
+    # Financial statement basis (new)
+    fs_basis: str | None = None   # "CFS" | "OFS" | "MIXED" | "UNKNOWN"
+
 
 class ScoreCard(BaseModel):
     """4-dimension scores plus total and categories."""
@@ -60,3 +63,4 @@ class ScoreCard(BaseModel):
     total_score: float                        # 0-100
     grade: str                                # ★★★★★ etc.
     categories: list[str] = []                # ["Quality", "GARP"] etc.
+    coverage: int = 4                         # 산출된 차원 수 (0~4)

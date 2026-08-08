@@ -18,3 +18,4 @@ class FinancialStatement(BaseModel):
     quarter: int          # 0 = annual report, 1/2/3 = quarter reports
     account: str          # e.g. "매출액", "영업이익", "당기순이익"
     value: float
+    fs_div: str | None = None   # "CFS"=연결, "OFS"=별도. 구버전 데이터는 None.

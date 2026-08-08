@@ -43,6 +43,7 @@ class MetricsRow(FundamentalsBase):
     dividend_yield = Column(Float, nullable=True)
     payout_ratio = Column(Float, nullable=True)
     consecutive_dividend_years = Column(Integer, nullable=True)
+    fs_basis = Column(String(8), nullable=True)
 
 
 class ScoreRow(FundamentalsBase):
@@ -57,6 +58,7 @@ class ScoreRow(FundamentalsBase):
     total_score = Column(Float, nullable=False)
     grade = Column(String(10), nullable=False)
     categories = Column(String(200), nullable=False)  # JSON-encoded list
+    coverage = Column(Integer, nullable=True)  # 산출된 차원 수 (0~4)
 
 
 def _migrate_add_enrichment_columns(engine) -> None:
@@ -79,11 +81,27 @@ def _migrate_add_enrichment_columns(engine) -> None:
         ("dividend_yield", "FLOAT"),
         ("payout_ratio", "FLOAT"),
         ("consecutive_dividend_years", "INTEGER"),
+        ("fs_basis", "VARCHAR(8)"),
     ]
     with engine.begin() as conn:
         for name, sqltype in to_add:
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE fundamentals_metrics ADD COLUMN {name} {sqltype}"))
+
+
+def _migrate_add_score_coverage_column(engine) -> None:
+    """Idempotent ALTER for fundamentals_scores.coverage. Safe to run
+    repeatedly and safe to call even if the table does not exist yet."""
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    try:
+        existing = {col["name"] for col in insp.get_columns("fundamentals_scores")}
+    except Exception:
+        # Table doesn't exist yet; create_all will create it with the column directly.
+        return
+    if "coverage" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE fundamentals_scores ADD COLUMN coverage INTEGER"))
 
 
 class FundamentalsDB:
@@ -93,6 +111,7 @@ class FundamentalsDB:
         self.engine = create_engine(url)
         FundamentalsBase.metadata.create_all(self.engine)
         _migrate_add_enrichment_columns(self.engine)
+        _migrate_add_score_coverage_column(self.engine)
 
     def save_metrics(self, metrics: list[FundamentalsMetrics]) -> None:
         if not metrics:
@@ -113,6 +132,7 @@ class FundamentalsDB:
                     ocf=m.ocf, fcf=m.fcf, capex_to_revenue=m.capex_to_revenue,
                     dividend_yield=m.dividend_yield, payout_ratio=m.payout_ratio,
                     consecutive_dividend_years=m.consecutive_dividend_years,
+                    fs_basis=m.fs_basis,
                 ))
             session.commit()
 
@@ -130,6 +150,7 @@ class FundamentalsDB:
                     growth_score=s.growth_score, cashflow_score=s.cashflow_score,
                     total_score=s.total_score, grade=s.grade,
                     categories=json.dumps(s.categories, ensure_ascii=False),
+                    coverage=s.coverage,
                 ))
             session.commit()
 
@@ -146,6 +167,9 @@ class FundamentalsDB:
                     growth_score=r.growth_score, cashflow_score=r.cashflow_score,
                     total_score=r.total_score, grade=r.grade,
                     categories=json.loads(r.categories),
+                    # 마이그레이션 이전에 저장된 레거시 행은 coverage가 NULL일 수 있으므로
+                    # 기본값(4개 차원 모두 산출)으로 대체합니다.
+                    coverage=r.coverage if r.coverage is not None else 4,
                 )
                 for r in rows
             ]
@@ -170,6 +194,7 @@ class FundamentalsDB:
                     ocf=r.ocf, fcf=r.fcf, capex_to_revenue=r.capex_to_revenue,
                     dividend_yield=r.dividend_yield, payout_ratio=r.payout_ratio,
                     consecutive_dividend_years=r.consecutive_dividend_years,
+                    fs_basis=r.fs_basis,
                 )
                 for r in rows
             ]

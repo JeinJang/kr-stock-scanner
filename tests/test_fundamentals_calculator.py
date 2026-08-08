@@ -1,4 +1,7 @@
 from datetime import date
+
+import pytest
+
 from src.dart.models import FinancialStatement
 from src.fundamentals.calculator import compute_metrics
 from src.market_data.models import MarketYearly
@@ -302,3 +305,41 @@ def test_consecutive_dividend_years_null_when_no_dividend_data():
     statements = [_stmt(2024, "자본총계", 1)]
     m = compute_metrics("X", "C1", statements, market_yearly=[], as_of=date(2026, 5, 15))
     assert m.consecutive_dividend_years is None
+
+
+def test_compute_metrics_uses_consolidated_not_separate():
+    """한진 실측 재현: 별도가 섞이면 ROE 부호가 뒤집힙니다."""
+
+    def _s(year, account, value, fs_div):
+        return FinancialStatement(corp_code="C", year=year, quarter=0,
+                                  account=account, value=value, fs_div=fs_div)
+
+    stmts = [
+        # 연결: 순이익 +250억 / 자본 1조5,233억
+        _s(2025, "당기순이익", 25_000_000_000.0, "CFS"),
+        _s(2025, "자본총계", 1_523_300_000_000.0, "CFS"),
+        # 별도: 순이익 +10억 (last-write-wins 이면 이쪽이 채택됩니다)
+        _s(2025, "당기순이익", 1_000_000_000.0, "OFS"),
+        _s(2025, "자본총계", 1_443_300_000_000.0, "OFS"),
+    ]
+    m = compute_metrics(ticker="002320", corp_code="C", statements=stmts,
+                        market_yearly=[], as_of=date(2026, 8, 8))
+    assert m.fs_basis == "CFS"
+    # 연결 기준 ROE = 250/15233 = 1.64%
+    assert m.roe == pytest.approx(1.64, abs=0.05)
+
+
+def test_early_return_when_no_equity_still_sets_fs_basis():
+    """자본총계가 없어 조기 반환하는 경로도 fs_basis 를 CFS/OFS/MIXED/UNKNOWN 중 하나로 채워야 합니다.
+
+    이전에는 fs_basis 인자 없이 FundamentalsMetrics 를 만들어 None 이 남았는데,
+    문서화된 4개 상태(CFS/OFS/MIXED/UNKNOWN) 밖의 5번째 상태가 되는 문제가 있었습니다.
+    """
+    stmts = [
+        FinancialStatement(corp_code="C", year=2025, quarter=0,
+                            account="영업이익", value=100.0, fs_div="CFS"),
+    ]
+    m = compute_metrics(ticker="000000", corp_code="C", statements=stmts,
+                        market_yearly=[], as_of=date(2026, 8, 8))
+    assert m.fs_basis == "CFS"
+    assert m.roe is None
