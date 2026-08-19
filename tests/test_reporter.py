@@ -135,6 +135,16 @@ def test_fmt_span_formats_years_months_days():
     assert _fmt_span(12) == "12일"
 
 
+def test_fmt_span_clamps_month_rollover_at_boundaries():
+    """rest // 30 이 12가 되는 구간(365일 직전)에서도 '12개월'이 나오면 안 된다."""
+    from src.reporter import _fmt_span
+
+    assert _fmt_span(364) == "11개월"
+    assert _fmt_span(365) == "1년"
+    assert _fmt_span(725) == "1년 11개월"
+    assert _fmt_span(1090) == "2년 11개월"
+
+
 def test_recency_badge_buckets():
     from src.reporter import _recency_badge
 
@@ -169,6 +179,13 @@ def test_depth_badge_buckets():
     assert _depth_badge(_rstock(b=1170, span=4000)) == "🏔 3년 2개월 만의 최고가"
 
 
+def test_depth_badge_decade_boundary():
+    from src.reporter import _depth_badge
+
+    assert _depth_badge(_rstock(b=None, span=3650)) == "🏔 10년래 최고"
+    assert _depth_badge(_rstock(b=None, span=3649)) == "🏔 상장 이후 최고"
+
+
 def test_recency_groups():
     from src.reporter import _recency_group
 
@@ -177,6 +194,14 @@ def test_recency_groups():
     assert _recency_group(_rstock(a=100, span=4000)).startswith("중기 돌파")
     assert _recency_group(_rstock(a=10, span=4000)).startswith("신고가 행진")
     assert _recency_group(_rstock(span=None)) == "정보 없음"
+
+
+def test_recency_group_boundary_at_365_days():
+    """A == 365 는 장기 돌파(1년 이상 만), A == 364 는 중기 돌파여야 배지 문구와 그룹명이 맞는다."""
+    from src.reporter import _recency_group
+
+    assert _recency_group(_rstock(a=365, span=4000)).startswith("장기 돌파")
+    assert _recency_group(_rstock(a=364, span=4000)).startswith("중기 돌파")
 
 
 def test_stock_line_shows_breakout_only_when_known():

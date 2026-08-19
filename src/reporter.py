@@ -59,7 +59,7 @@ GROUP_ORDER = (GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_UNKNOWN)
 def _fmt_span(days: int) -> str:
     """일수를 '3년 2개월' 같은 사람이 읽는 기간으로."""
     years, rest = divmod(days, 365)
-    months = rest // 30
+    months = min(rest // 30, 11)
     if years and months:
         return f"{years}년 {months}개월"
     if years:
@@ -101,7 +101,7 @@ def _recency_group(stock) -> str:
     if stock.history_span_days is None:
         return GROUP_UNKNOWN
     a = stock.days_since_prev_new_high
-    if a is None or a > RECENCY_LONG_DAYS:
+    if a is None or a >= RECENCY_LONG_DAYS:
         return GROUP_LONG
     if a > RECENCY_SHORT_DAYS:
         return GROUP_MID
