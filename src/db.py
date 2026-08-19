@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Column, Integer, String, Float, BigInteger, Date, DateTime, Text,
-    create_engine, delete, select,
+    create_engine, delete, select, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -12,6 +12,28 @@ from src.models import ScanResult, AIAnalysisResult
 
 class Base(DeclarativeBase):
     pass
+
+
+def _migrate_add_recency_columns(engine) -> None:
+    """new_highs에 돌파 신선도 컬럼을 멱등 추가. 테이블이 없으면 조용히 반환."""
+    from sqlalchemy import inspect
+
+    insp = inspect(engine)
+    try:
+        existing = {col["name"] for col in insp.get_columns("new_highs")}
+    except Exception:
+        # 테이블이 아직 없음 — create_all이 컬럼까지 함께 만든다.
+        return
+    to_add = [
+        ("days_since_prev_new_high", "INTEGER"),
+        ("days_since_price_above", "INTEGER"),
+        ("history_span_days", "INTEGER"),
+        ("change_pct", "FLOAT"),
+    ]
+    with engine.begin() as conn:
+        for name, sqltype in to_add:
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE new_highs ADD COLUMN {name} {sqltype}"))
 
 
 class DailyScan(Base):
@@ -39,6 +61,10 @@ class NewHigh(Base):
     breakout_pct = Column(Float, nullable=False)
     volume = Column(BigInteger, nullable=False)
     avg_volume_20d = Column(BigInteger, nullable=False)
+    days_since_prev_new_high = Column(Integer, nullable=True)
+    days_since_price_above = Column(Integer, nullable=True)
+    history_span_days = Column(Integer, nullable=True)
+    change_pct = Column(Float, nullable=True)
 
 
 class AIAnalysis(Base):
@@ -57,6 +83,7 @@ class Database:
     def __init__(self, url: str = "sqlite:///data/scanner.db"):
         self.engine = create_engine(url)
         Base.metadata.create_all(self.engine)
+        _migrate_add_recency_columns(self.engine)
 
     def save_scan_result(self, result: ScanResult) -> None:
         with Session(self.engine) as session:
@@ -86,6 +113,10 @@ class Database:
                     breakout_pct=stock.breakout_pct,
                     volume=stock.volume,
                     avg_volume_20d=stock.avg_volume_20d,
+                    days_since_prev_new_high=stock.days_since_prev_new_high,
+                    days_since_price_above=stock.days_since_price_above,
+                    history_span_days=stock.history_span_days,
+                    change_pct=stock.change_pct,
                 ))
             session.commit()
 
@@ -194,6 +225,10 @@ class Database:
                     high_52w=r.high_52w, prev_high_52w=r.prev_high_52w,
                     breakout_pct=r.breakout_pct, volume=r.volume,
                     avg_volume_20d=r.avg_volume_20d,
+                    days_since_prev_new_high=r.days_since_prev_new_high,
+                    days_since_price_above=r.days_since_price_above,
+                    history_span_days=r.history_span_days,
+                    change_pct=r.change_pct or 0.0,
                 )
                 for r in rows
             ]
