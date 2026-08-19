@@ -9,8 +9,9 @@ from datetime import date, timedelta
 
 from loguru import logger
 
-from src.breakout_recency import Bar
+from src.breakout_recency import Bar, compute_recency
 from src.krx_login_client import KrxBlockedError
+from src.models import StockHigh
 
 
 def _to_bars(df) -> list[Bar]:
@@ -98,3 +99,54 @@ def fetch_bars(
         return None
 
     return bars or None
+
+
+def enrich_highs(
+    client,
+    highs: list[StockHigh],
+    as_of: date,
+    window: int = 250,
+) -> None:
+    """highs 각 종목의 돌파 신선도를 계산해 제자리에서 채운다.
+
+    이력을 못 가져온 종목은 지표를 None으로 남기고 기존 값을 보존한다.
+    KrxBlockedError는 전파한다 — 차단 상태에서 추가 요청을 보내면 안 된다.
+    """
+    filled = 0
+    for stock in highs:
+        try:
+            bars = fetch_bars(client, stock.ticker, as_of)
+        except KrxBlockedError:
+            logger.error(f"KRX 차단 감지 — 신선도 계산 중단 ({filled}/{len(highs)} 완료)")
+            raise
+        except Exception as e:  # noqa: BLE001 — 개별 종목 실패는 나머지를 막지 않는다
+            logger.warning(f"{stock.ticker} 신선도 계산 실패: {type(e).__name__}: {e}")
+            continue
+
+        if not bars:
+            continue
+
+        recency = compute_recency(bars, window=window)
+        if recency is None:
+            continue
+
+        stock.days_since_prev_new_high = recency.days_since_prev_new_high
+        stock.days_since_price_above = recency.days_since_price_above
+        stock.history_span_days = recency.history_span_days
+        stock.high_52w = recency.today_high
+        stock.prev_high_52w = recency.prev_high_52w
+        if recency.prev_high_52w > 0:
+            stock.breakout_pct = round(
+                (recency.today_high - recency.prev_high_52w) / recency.prev_high_52w * 100, 2
+            )
+
+        # 52주 신고가라면 B는 최소 1년 이상이어야 한다. 아니면 investing 판정과
+        # KRX 수정주가가 어긋난 것이므로 기록만 남기고 값은 그대로 쓴다.
+        if recency.days_since_price_above is not None and recency.days_since_price_above < 365:
+            logger.warning(
+                f"{stock.name}({stock.ticker}) B={recency.days_since_price_above}일 — "
+                f"52주 신고가와 불일치(수정주가 차이 가능성)"
+            )
+        filled += 1
+
+    logger.info(f"돌파 신선도 산출: {filled}/{len(highs)}종목")

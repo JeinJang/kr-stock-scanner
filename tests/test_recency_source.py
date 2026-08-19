@@ -142,3 +142,88 @@ def test_returns_none_when_later_chunk_fails_after_partial_success():
 
     client = PartialThenBoom()
     assert fetch_bars(client, "005930", date(2026, 8, 19)) is None
+
+
+def _stock(ticker="005930"):
+    from src.models import StockHigh
+
+    return StockHigh(
+        ticker=ticker, name="테스트", market="KOSPI", sector="전기전자",
+        close_price=100, high_52w=100, prev_high_52w=0.0,
+        breakout_pct=0.0, volume=1, avg_volume_20d=0, change_pct=2.0,
+    )
+
+
+def test_enrich_highs_fills_metrics_and_normalizes_breakout(monkeypatch):
+    """이력이 있으면 A·B·이력길이·직전고점·돌파율·오늘고가가 모두 채워진다."""
+    from datetime import timedelta
+    from src.breakout_recency import Bar
+    from src import recency_source
+
+    end = date(2026, 8, 19)
+    # 300봉: 앞 299봉은 고가 100, 오늘 110 → 직전 250봉 최고 100, 돌파율 10%
+    bars = [Bar(date=end - timedelta(days=299 - i), high=100.0) for i in range(299)]
+    bars.append(Bar(date=end, high=110.0))
+    monkeypatch.setattr(recency_source, "fetch_bars", lambda *a, **k: bars)
+
+    stock = _stock()
+    recency_source.enrich_highs(object(), [stock], end)
+
+    assert stock.history_span_days == 299
+    assert stock.days_since_price_above is None   # 110을 웃돈 과거일 없음
+    assert stock.days_since_prev_new_high == 1    # 어제 봉도 그날의 52주 신고가
+    assert stock.prev_high_52w == 100.0
+    assert stock.breakout_pct == 10.0
+    assert stock.high_52w == 110.0
+
+
+def test_enrich_highs_leaves_stock_untouched_when_no_history(monkeypatch):
+    """이력을 못 가져오면 지표는 None으로 남고 기존 값은 건드리지 않는다."""
+    from src import recency_source
+
+    monkeypatch.setattr(recency_source, "fetch_bars", lambda *a, **k: None)
+
+    stock = _stock()
+    recency_source.enrich_highs(object(), [stock], date(2026, 8, 19))
+
+    assert stock.history_span_days is None
+    assert stock.days_since_prev_new_high is None
+    assert stock.breakout_pct == 0.0
+    assert stock.change_pct == 2.0      # 당일 등락률은 보존
+    assert stock.high_52w == 100        # 원래 값 보존
+
+
+def test_enrich_highs_isolates_per_stock_failure(monkeypatch):
+    """한 종목이 실패해도 나머지는 계속 처리된다."""
+    from datetime import timedelta
+    from src.breakout_recency import Bar
+    from src import recency_source
+
+    end = date(2026, 8, 19)
+    good = [Bar(date=end - timedelta(days=1), high=100.0), Bar(date=end, high=110.0)]
+
+    def fake_fetch(client, ticker, as_of, **k):
+        if ticker == "000001":
+            raise ValueError("boom")
+        return good
+
+    monkeypatch.setattr(recency_source, "fetch_bars", fake_fetch)
+
+    bad, ok = _stock("000001"), _stock("000002")
+    recency_source.enrich_highs(object(), [bad, ok], end)
+
+    assert bad.history_span_days is None
+    assert ok.history_span_days == 1
+
+
+def test_enrich_highs_propagates_krx_blocked_error(monkeypatch):
+    from src import recency_source
+    from src.krx_login_client import KrxBlockedError
+
+    def blocked(*a, **k):
+        raise KrxBlockedError("차단")
+
+    monkeypatch.setattr(recency_source, "fetch_bars", blocked)
+
+    with pytest.raises(KrxBlockedError):
+        recency_source.enrich_highs(object(), [_stock()], date(2026, 8, 19))
