@@ -75,7 +75,8 @@ def test_stops_when_earlier_chunk_is_empty_newly_listed():
     bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
 
     assert len(bars) == 2
-    assert len(client.calls) == 2
+    # 3콜: 세 번째는 확인용 재요청 — 진짜 상장 경계와 거래소의 헛 빈 응답을 구분한다
+    assert len(client.calls) == 3
 
 
 def test_returns_none_on_empty_first_response():
@@ -267,3 +268,72 @@ def test_enrich_highs_accepts_last_bar_high_equal_to_close(monkeypatch):
 
     assert stock.history_span_days == 299
     assert stock.high_52w == 100.0
+
+
+def test_empty_chunk_is_reconfirmed_before_treating_as_listing_date():
+    """빈 응답은 같은 구간을 한 번 더 물어 확인한다. 재요청도 비면 상장 시점."""
+    first = _frame([("20230820", 100.0), ("20260819", 200.0)])
+    client = FakeClient([first])   # 이후 호출은 모두 빈 DataFrame
+
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
+
+    assert [b.date for b in bars] == [date(2023, 8, 20), date(2026, 8, 19)]
+    assert len(client.calls) == 3                       # 1차 + 빈 응답 + 재확인
+    assert client.calls[1] == client.calls[2]           # 재요청은 같은 구간
+
+
+def test_spurious_empty_chunk_is_recovered_by_retry():
+    """재요청에서 데이터가 나오면 그것을 병합하고 루프를 계속한다."""
+    first = _frame([("20250820", 150.0), ("20260819", 200.0)])
+    retry = _frame([("20150820", 100.0), ("20250819", 140.0)])
+    client = FakeClient([first, pd.DataFrame(), retry])   # 2번째 응답이 헛 빈 응답
+
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
+
+    assert [b.date for b in bars] == [
+        date(2015, 8, 20), date(2025, 8, 19), date(2025, 8, 20), date(2026, 8, 19),
+    ]
+    assert len(client.calls) == 3
+    assert client.calls[1] == client.calls[2]
+
+
+def test_retry_counts_against_max_calls():
+    """재요청도 예산을 소비하므로 max_calls를 넘겨 호출하지 않는다."""
+    frames = [
+        _frame([("20260101", 100.0)]),
+        pd.DataFrame(),                       # 헛 빈 응답 → 재요청 소비
+        _frame([("20250101", 100.0)]),
+        _frame([("20240101", 100.0)]),
+    ]
+    client = FakeClient(frames)
+
+    bars = fetch_bars(client, "005930", date(2026, 8, 19))
+
+    assert bars is None                # start까지 못 갔으므로 미완결
+    assert len(client.calls) == 4      # max_calls 기본값을 넘지 않음
+
+
+def test_propagates_krx_blocked_error_from_retry():
+    """재요청에서 차단이 감지되면 즉시 전파한다."""
+    from src.krx_login_client import KrxBlockedError
+
+    first = _frame([("20250820", 150.0), ("20260819", 200.0)])
+
+    class EmptyThenBlocked:
+        supports_history = True
+
+        def __init__(self):
+            self.calls = 0
+
+        def get_market_ohlcv_by_date(self, *a, **k):
+            self.calls += 1
+            if self.calls == 1:
+                return first
+            if self.calls == 2:
+                return pd.DataFrame()
+            raise KrxBlockedError("차단")
+
+    client = EmptyThenBlocked()
+    with pytest.raises(KrxBlockedError):
+        fetch_bars(client, "005930", date(2026, 8, 19))
+    assert client.calls == 3           # 재요청에서 터졌다

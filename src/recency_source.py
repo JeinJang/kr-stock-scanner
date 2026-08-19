@@ -41,8 +41,14 @@ def fetch_bars(
     """as_of 기준 years년치 수정주가 일봉을 가져온다.
 
     한 번에 다 오면 1콜로 끝난다. 응답이 잘리면 반환된 첫 거래일 직전까지
-    역방향으로 다시 요청한다. 빈 응답이 오면 그 지점을 상장 시점으로 보고 종료한다.
-    supports_history가 False인 클라이언트에서는 None.
+    역방향으로 다시 요청한다. supports_history가 False인 클라이언트에서는 None.
+
+    빈 응답은 곧바로 상장 시점으로 단정하지 않는다. KrxLoginClient._post는
+    HTTP != 200, LOGOUT, JSON 파싱 실패에도 []를 돌려주므로 "그 앞에 데이터가
+    없음"과 "일시적 오류"가 구분되지 않는다. 같은 구간을 한 번 더 요청해
+    재확인하고, 재요청도 비어 있을 때만 상장 시점으로 본다. 재요청에서
+    데이터가 나오면 첫 응답이 헛것이었다는 뜻이므로 경고를 남기고 그 값으로
+    계속 진행한다. 재요청도 max_calls 예산을 소비한다.
 
     이력이 실제로 start까지 닿았음이 확인된 경우에만 리스트를 반환한다.
     호출 수(max_calls) 소진이나 중간 실패로 완결을 확인하지 못하면 잘린
@@ -62,12 +68,13 @@ def fetch_bars(
     complete = False
     calls_made = 0
 
-    for _ in range(max_calls):
-        if cursor_end < start:
-            break
+    _FAILED = object()   # 조회 자체가 실패한 경우 (빈 응답과 구분)
+
+    def _request(end_date: date):
+        nonlocal calls_made
         try:
             df = client.get_market_ohlcv_by_date(
-                start.strftime("%Y%m%d"), cursor_end.strftime("%Y%m%d"),
+                start.strftime("%Y%m%d"), end_date.strftime("%Y%m%d"),
                 ticker, adjusted=True,
             )
             calls_made += 1
@@ -75,13 +82,33 @@ def fetch_bars(
             raise
         except Exception as e:  # noqa: BLE001 — 개별 종목 실패는 스캔을 막지 않는다
             logger.warning(f"{ticker} 일봉 조회 실패: {type(e).__name__}: {e}")
+            return _FAILED
+        return _to_bars(df)
+
+    while calls_made < max_calls:
+        if cursor_end < start:
+            break
+        chunk = _request(cursor_end)
+        if chunk is _FAILED:
             return None
 
-        chunk = _to_bars(df)
         if not chunk:
-            # 빈 응답 = 그 지점이 상장 시점 → 이력을 끝까지 확보한 것으로 본다.
-            complete = True
-            break
+            # 빈 응답 = 상장 시점일 수도, 거래소의 일시 오류일 수도 있다.
+            # 같은 구간을 한 번 더 물어 확인한다(예산 소진 시에는 확인 불가).
+            if calls_made >= max_calls:
+                break
+            retry = _request(cursor_end)
+            if retry is _FAILED:
+                return None
+            if not retry:
+                # 두 번 모두 비었음 → 그 지점을 상장 시점으로 본다.
+                complete = True
+                break
+            logger.warning(
+                f"{ticker} 빈 응답 재요청에서 {len(retry)}봉 반환 "
+                f"(구간 {start}~{cursor_end}) — 거래소 일시 오류로 보고 계속 진행"
+            )
+            chunk = retry
 
         bars = chunk + bars
         # 요청 시작일 근처까지 왔으면 완료 (거래일 공백 감안해 7일 여유)
