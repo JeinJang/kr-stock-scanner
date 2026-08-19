@@ -492,7 +492,9 @@ def test_report_shows_and_sorts_by_change_pct():
     text = Reporter(bot_token="", chat_id=0).format_report(result, [], [])
 
     assert "+9.0%" in text and "+1.0%" in text
-    assert text.index("높은종목") < text.index("낮은종목")  # 등락률 내림차순
+    # 섹터별 TOP 섹션에도 종목명이 나오므로, 전체 목록 구간만 잘라서 순서를 본다
+    listing = text.split("■ 전체 52주 신고가 목록")[1]
+    assert listing.index("높은종목") < listing.index("낮은종목")  # 등락률 내림차순
 ```
 
 - [ ] **Step 2: 실패 확인**
