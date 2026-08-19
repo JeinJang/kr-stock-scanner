@@ -126,7 +126,7 @@ def _stock_line(stock) -> str:
     parts = [
         f"  {_stock_link(stock.name, stock.ticker)}",
         f"{stock.close_price:,.0f}원",
-        f"+{stock.change_pct:.1f}%",
+        f"{stock.change_pct:+.1f}%",
     ]
     if stock.breakout_pct > 0:
         parts.append(f"↑{stock.breakout_pct:.1f}% 돌파")
@@ -194,7 +194,7 @@ class Reporter:
                     header = [
                         f"▶ {link}",
                         f"{stock.close_price:,.0f}원",
-                        f"+{stock.change_pct:.1f}%",
+                        f"{stock.change_pct:+.1f}%",
                     ]
                     header.extend(_badges(stock))
                     lines.append(" | ".join(header))

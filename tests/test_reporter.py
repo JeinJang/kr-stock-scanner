@@ -281,3 +281,31 @@ def test_report_shows_new_listing_group_without_empty_floor_badge():
     assert "0일 이상 만" not in text
     assert "[장기 돌파 · 1년 이상 만]" not in text
     assert "🏔 상장 이후 최고" in text
+
+
+def test_negative_change_pct_renders_single_minus_sign():
+    """장중 신고가 후 하락 마감한 종목은 '+-1.2%'가 아니라 '-1.2%'로 나와야 한다."""
+    from src.reporter import _stock_line
+
+    stock = _rstock("000001", "하락마감", a=10, span=4000)
+    stock.change_pct = -1.2
+
+    line = _stock_line(stock)
+    assert "-1.2%" in line
+    assert "+-" not in line
+
+
+def test_ai_header_renders_negative_change_pct_with_single_sign():
+    """AI 분석 헤더도 부호 인식 포맷을 쓴다."""
+    from src.reporter import Reporter
+    from src.models import AIAnalysisResult
+
+    stock = _rstock("000001", "하락마감", a=10, span=4000)
+    stock.change_pct = -1.2
+    analyses = [AIAnalysisResult(ticker="000001", news_summary="요약", ai_analysis="분석")]
+
+    text = Reporter(bot_token="", chat_id=0).format_report(_result([stock]), analyses, [])
+
+    header = text.split("■ 주요 종목 AI 분석")[1].split("■ 전체")[0]
+    assert "-1.2%" in header
+    assert "+-" not in text
