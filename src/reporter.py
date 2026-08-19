@@ -42,6 +42,90 @@ def _stock_link(name: str, ticker: str) -> str:
     return f'<a href="{url}">{escape(name)} ({ticker})</a>'
 
 
+# -- 돌파 신선도 라벨 -----------------------------------------------------
+
+RECENCY_STREAK_DAYS = 5      # 이하 → 신고가 행진
+RECENCY_SHORT_DAYS = 30      # 이하 → 단기 재돌파
+RECENCY_LONG_DAYS = 365      # 초과 → 장기 돌파
+DEPTH_DECADE_DAYS = 3650     # 이상 → 10년래 최고
+
+GROUP_LONG = "장기 돌파 · 1년 이상 만"
+GROUP_MID = "중기 돌파 · 1~12개월"
+GROUP_STREAK = "신고가 행진 · 1개월 내 재돌파"
+GROUP_UNKNOWN = "정보 없음"
+GROUP_ORDER = (GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_UNKNOWN)
+
+
+def _fmt_span(days: int) -> str:
+    """일수를 '3년 2개월' 같은 사람이 읽는 기간으로."""
+    years, rest = divmod(days, 365)
+    months = rest // 30
+    if years and months:
+        return f"{years}년 {months}개월"
+    if years:
+        return f"{years}년"
+    if months:
+        return f"{months}개월"
+    return f"{days}일"
+
+
+def _recency_badge(stock) -> str | None:
+    """A(재돌파 간격) 배지. 이력이 없으면 None."""
+    if stock.history_span_days is None:
+        return None
+    a = stock.days_since_prev_new_high
+    if a is None:
+        # 확보 구간 안에 직전 신고가가 없음 — 워밍업 52주를 뺀 값이 하한
+        floor_days = max(stock.history_span_days - RECENCY_LONG_DAYS, 0)
+        return f"🆕 {_fmt_span(floor_days)} 이상 만 (첫 돌파)"
+    if a <= RECENCY_STREAK_DAYS:
+        return "🔁 신고가 행진"
+    if a <= RECENCY_SHORT_DAYS:
+        return f"🔁 {a}일 만"
+    return f"🆕 {_fmt_span(a)} 만"
+
+
+def _depth_badge(stock) -> str | None:
+    """B(갱신 깊이) 배지. 이력이 없으면 None."""
+    span = stock.history_span_days
+    if span is None:
+        return None
+    b = stock.days_since_price_above
+    if b is None:
+        return "🏔 10년래 최고" if span >= DEPTH_DECADE_DAYS else "🏔 상장 이후 최고"
+    return f"🏔 {_fmt_span(b)} 만의 최고가"
+
+
+def _recency_group(stock) -> str:
+    """A 기준 그룹명."""
+    if stock.history_span_days is None:
+        return GROUP_UNKNOWN
+    a = stock.days_since_prev_new_high
+    if a is None or a > RECENCY_LONG_DAYS:
+        return GROUP_LONG
+    if a > RECENCY_SHORT_DAYS:
+        return GROUP_MID
+    return GROUP_STREAK
+
+
+def _badges(stock) -> list[str]:
+    return [b for b in (_recency_badge(stock), _depth_badge(stock)) if b]
+
+
+def _stock_line(stock) -> str:
+    """전체 목록의 한 줄."""
+    parts = [
+        f"  {_stock_link(stock.name, stock.ticker)}",
+        f"{stock.close_price:,.0f}원",
+        f"+{stock.change_pct:.1f}%",
+    ]
+    if stock.breakout_pct > 0:
+        parts.append(f"↑{stock.breakout_pct:.1f}% 돌파")
+    parts.extend(_badges(stock))
+    parts.append(escape(stock.sector))
+    return " | ".join(parts)
+
+
 class Reporter:
     """Formats and sends reports via Telegram."""
 
@@ -98,10 +182,13 @@ class Reporter:
                 if stock.ticker in ai_map:
                     a = ai_map[stock.ticker]
                     link = _stock_link(stock.name, stock.ticker)
-                    lines.append(
-                        f"▶ {link} | "
-                        f"{stock.close_price:,.0f}원 | +{stock.change_pct:.1f}%"
-                    )
+                    header = [
+                        f"▶ {link}",
+                        f"{stock.close_price:,.0f}원",
+                        f"+{stock.change_pct:.1f}%",
+                    ]
+                    header.extend(_badges(stock))
+                    lines.append(" | ".join(header))
                     lines.append(escape(a.ai_analysis))
                     if a.news_links:
                         lines.append("관련 기사:")
@@ -112,12 +199,20 @@ class Reporter:
             lines.append("")
 
         lines.append("<b>■ 전체 52주 신고가 목록</b>")
-        for stock in sorted(result.highs, key=lambda h: h.change_pct, reverse=True):
-            link = _stock_link(stock.name, stock.ticker)
-            lines.append(
-                f"  {link} | {stock.close_price:,.0f}원 | "
-                f"+{stock.change_pct:.1f}% | {escape(stock.sector)}"
-            )
+        ordered = sorted(result.highs, key=lambda h: h.change_pct, reverse=True)
+        grouped: dict[str, list] = {g: [] for g in GROUP_ORDER}
+        for stock in ordered:
+            grouped[_recency_group(stock)].append(stock)
+
+        has_metrics = any(h.history_span_days is not None for h in result.highs)
+        for group in GROUP_ORDER:
+            members = grouped[group]
+            if not members:
+                continue
+            if has_metrics:
+                lines.append(f"[{group}]")
+            for stock in members:
+                lines.append(_stock_line(stock))
 
         return "\n".join(lines)
 

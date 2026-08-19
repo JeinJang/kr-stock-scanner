@@ -113,3 +113,106 @@ def test_report_shows_and_sorts_by_change_pct():
     # 섹터별 TOP 섹션에도 종목명이 나오므로, 전체 목록 구간만 잘라서 순서를 본다
     listing = text.split("■ 전체 52주 신고가 목록")[1]
     assert listing.index("높은종목") < listing.index("낮은종목")  # 등락률 내림차순
+
+
+def _rstock(ticker="000001", name="종목", a=None, b=None, span=None, breakout=0.0):
+    from src.models import StockHigh
+
+    return StockHigh(
+        ticker=ticker, name=name, market="KOSPI", sector="전기전자",
+        close_price=1000, high_52w=1000, prev_high_52w=0.0,
+        breakout_pct=breakout, volume=1, avg_volume_20d=0, change_pct=1.0,
+        days_since_prev_new_high=a, days_since_price_above=b, history_span_days=span,
+    )
+
+
+def test_fmt_span_formats_years_months_days():
+    from src.reporter import _fmt_span
+
+    assert _fmt_span(1170) == "3년 2개월"
+    assert _fmt_span(730) == "2년"
+    assert _fmt_span(90) == "3개월"
+    assert _fmt_span(12) == "12일"
+
+
+def test_recency_badge_buckets():
+    from src.reporter import _recency_badge
+
+    assert _recency_badge(_rstock(a=1, span=4000)) == "🔁 신고가 행진"
+    assert _recency_badge(_rstock(a=5, span=4000)) == "🔁 신고가 행진"
+    assert _recency_badge(_rstock(a=6, span=4000)) == "🔁 6일 만"
+    assert _recency_badge(_rstock(a=30, span=4000)) == "🔁 30일 만"
+    assert _recency_badge(_rstock(a=90, span=4000)) == "🆕 3개월 만"
+    assert _recency_badge(_rstock(a=1170, span=4000)) == "🆕 3년 2개월 만"
+
+
+def test_recency_badge_when_no_prior_new_high_in_range():
+    from src.reporter import _recency_badge
+
+    badge = _recency_badge(_rstock(a=None, span=4000))
+    assert "이상 만" in badge and "첫 돌파" in badge
+
+
+def test_badges_are_omitted_without_history():
+    from src.reporter import _recency_badge, _depth_badge
+
+    stock = _rstock(a=None, b=None, span=None)
+    assert _recency_badge(stock) is None
+    assert _depth_badge(stock) is None
+
+
+def test_depth_badge_buckets():
+    from src.reporter import _depth_badge
+
+    assert _depth_badge(_rstock(b=None, span=4000)) == "🏔 10년래 최고"
+    assert _depth_badge(_rstock(b=None, span=1000)) == "🏔 상장 이후 최고"
+    assert _depth_badge(_rstock(b=1170, span=4000)) == "🏔 3년 2개월 만의 최고가"
+
+
+def test_recency_groups():
+    from src.reporter import _recency_group
+
+    assert _recency_group(_rstock(a=1000, span=4000)).startswith("장기 돌파")
+    assert _recency_group(_rstock(a=None, span=4000)).startswith("장기 돌파")
+    assert _recency_group(_rstock(a=100, span=4000)).startswith("중기 돌파")
+    assert _recency_group(_rstock(a=10, span=4000)).startswith("신고가 행진")
+    assert _recency_group(_rstock(span=None)) == "정보 없음"
+
+
+def test_stock_line_shows_breakout_only_when_known():
+    from src.reporter import _stock_line
+
+    assert "돌파" not in _stock_line(_rstock(breakout=0.0))
+    assert "↑1.4% 돌파" in _stock_line(_rstock(a=10, span=4000, breakout=1.4))
+
+
+def _result(highs):
+    from datetime import date
+    from src.models import ScanResult, MarketStats
+
+    return ScanResult(
+        scan_date=date(2026, 8, 19),
+        stats=MarketStats(total_stocks=len(highs), new_high_count=len(highs), kospi_count=len(highs)),
+        highs=highs, sector_breakdown={"전기전자": highs},
+    )
+
+
+def test_report_groups_when_any_stock_has_metrics():
+    from src.reporter import Reporter
+
+    highs = [_rstock("000001", "장기", a=1000, span=4000), _rstock("000002", "미상", span=None)]
+    text = Reporter(bot_token="", chat_id=0).format_report(_result(highs), [], [])
+
+    assert "[장기 돌파 · 1년 이상 만]" in text
+    assert "[정보 없음]" in text
+    assert text.index("[장기 돌파 · 1년 이상 만]") < text.index("[정보 없음]")
+
+
+def test_report_stays_flat_when_no_stock_has_metrics():
+    from src.reporter import Reporter
+
+    highs = [_rstock("000001", "가", span=None), _rstock("000002", "나", span=None)]
+    text = Reporter(bot_token="", chat_id=0).format_report(_result(highs), [], [])
+
+    assert "[정보 없음]" not in text
+    assert "장기 돌파" not in text
