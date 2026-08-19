@@ -104,3 +104,41 @@ def test_propagates_krx_blocked_error():
 
     with pytest.raises(KrxBlockedError):
         fetch_bars(Blocked(), "005930", date(2026, 8, 19))
+
+
+def test_returns_none_when_max_calls_exhausted_without_reaching_start():
+    # 매 응답이 계속 짧게 잘려 나와 start까지 도달하지 못하면(호출 상한 소진)
+    # 이력이 실제로 완결됐는지 알 수 없으므로 부분 리스트 대신 None.
+    frames = [
+        _frame([("20260101", 100.0)]),
+        _frame([("20250101", 100.0)]),
+        _frame([("20240101", 100.0)]),
+        _frame([("20230101", 100.0)]),
+    ]
+    client = FakeClient(frames)
+
+    bars = fetch_bars(client, "005930", date(2026, 8, 19))
+
+    assert bars is None
+    assert len(client.calls) == 4    # max_calls 기본값만큼만 호출
+
+
+def test_returns_none_when_later_chunk_fails_after_partial_success():
+    # 1차 응답은 왔지만 start까지 못 미쳤는데 2차 호출이 실패하면,
+    # 1차만으로는 이력 완결을 보장할 수 없으므로 부분 리스트를 넘기지 않는다.
+    first = _frame([("20250820", 150.0), ("20260819", 200.0)])
+
+    class PartialThenBoom:
+        supports_history = True
+
+        def __init__(self):
+            self.calls = 0
+
+        def get_market_ohlcv_by_date(self, *a, **k):
+            self.calls += 1
+            if self.calls == 1:
+                return first
+            raise ValueError("boom")
+
+    client = PartialThenBoom()
+    assert fetch_bars(client, "005930", date(2026, 8, 19)) is None
