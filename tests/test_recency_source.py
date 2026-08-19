@@ -227,3 +227,43 @@ def test_enrich_highs_propagates_krx_blocked_error(monkeypatch):
 
     with pytest.raises(KrxBlockedError):
         recency_source.enrich_highs(object(), [_stock()], date(2026, 8, 19))
+
+
+def test_enrich_highs_skips_when_last_bar_predates_today(monkeypatch):
+    """마지막 봉 고가가 오늘 종가보다 낮으면 = 오늘 봉이 아니므로 손대지 않는다."""
+    from datetime import timedelta
+    from src.breakout_recency import Bar
+    from src import recency_source
+
+    end = date(2026, 8, 19)
+    # 전 거래일까지만 반영된 이력: 마지막 봉 고가 90 < 오늘 종가 100
+    bars = [Bar(date=end - timedelta(days=300 - i), high=90.0) for i in range(300)]
+    monkeypatch.setattr(recency_source, "fetch_bars", lambda *a, **k: bars)
+
+    stock = _stock()   # close_price=100, high_52w=100
+    recency_source.enrich_highs(object(), [stock], end)
+
+    assert stock.days_since_prev_new_high is None
+    assert stock.days_since_price_above is None
+    assert stock.history_span_days is None
+    assert stock.high_52w == 100        # 원래 값 보존
+    assert stock.prev_high_52w == 0.0
+    assert stock.breakout_pct == 0.0
+
+
+def test_enrich_highs_accepts_last_bar_high_equal_to_close(monkeypatch):
+    """고가 == 종가(상한가 등)는 정상이므로 걸러내면 안 된다."""
+    from datetime import timedelta
+    from src.breakout_recency import Bar
+    from src import recency_source
+
+    end = date(2026, 8, 19)
+    bars = [Bar(date=end - timedelta(days=299 - i), high=90.0) for i in range(299)]
+    bars.append(Bar(date=end, high=100.0))
+    monkeypatch.setattr(recency_source, "fetch_bars", lambda *a, **k: bars)
+
+    stock = _stock()   # close_price=100
+    recency_source.enrich_highs(object(), [stock], end)
+
+    assert stock.history_span_days == 299
+    assert stock.high_52w == 100.0

@@ -109,7 +109,8 @@ def enrich_highs(
 ) -> None:
     """highs 각 종목의 돌파 신선도를 계산해 제자리에서 채운다.
 
-    이력을 못 가져온 종목은 지표를 None으로 남기고 기존 값을 보존한다.
+    이력을 못 가져온 종목, 그리고 마지막 봉이 오늘 것이 아닌 종목은 지표를
+    None으로 남기고 기존 값을 보존한다.
     KrxBlockedError는 전파한다 — 차단 상태에서 추가 요청을 보내면 안 된다.
     """
     filled = 0
@@ -128,6 +129,19 @@ def enrich_highs(
 
         recency = compute_recency(bars, window=window)
         if recency is None:
+            continue
+
+        # 마지막 봉이 오늘 것인지 확인. KRX가 장 마감 데이터를 아직 안 올렸으면
+        # bars[-1]은 전 거래일이고, 그 고가는 오늘 종가보다 낮을 수 있다.
+        # 같은 날 고가가 종가보다 낮을 수는 없으므로 이는 오래된 봉이라는 신호다.
+        # bars[-1].date == as_of 같은 엄격한 비교는 주말·소급 실행에서 오탐이므로
+        # 쓰지 않는다. 이 경우 지표를 비워 두는 쪽이 정직하다(배지 미표시).
+        if recency.today_high < stock.close_price:
+            logger.warning(
+                f"{stock.name}({stock.ticker}) 최신 봉이 오늘 것이 아님 — "
+                f"마지막 봉 {bars[-1].date} 고가 {recency.today_high:,.0f} "
+                f"< 종가 {stock.close_price:,.0f}, 신선도 계산 생략"
+            )
             continue
 
         stock.days_since_prev_new_high = recency.days_since_prev_new_high
