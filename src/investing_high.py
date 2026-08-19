@@ -155,9 +155,11 @@ def build_highs(
             close_price=row.last_price,
             high_52w=row.last_price,
             prev_high_52w=0.0,
-            breakout_pct=row.change_pct,
+            # 돌파율은 이력을 확보한 뒤에야 알 수 있다 (recency_source.enrich_highs).
+            breakout_pct=0.0,
             volume=row.volume,
             avg_volume_20d=0,
+            change_pct=row.change_pct,
         ))
     return highs
 

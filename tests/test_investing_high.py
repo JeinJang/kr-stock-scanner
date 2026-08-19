@@ -134,7 +134,9 @@ def test_build_highs_assembles_stockhigh():
     assert isinstance(h, StockHigh)
     assert (h.ticker, h.market, h.sector) == ("052460", "KOSDAQ", "IT")
     assert h.close_price == 5190.0 and h.volume == 2_070_000
-    assert h.breakout_pct == 12.34
+    # 당일 등락률은 change_pct로 들어가고, breakout_pct는 이력 확보 전까지 0.0.
+    assert h.change_pct == 12.34
+    assert h.breakout_pct == 0.0
 
 
 def test_collect_investing_highs_end_to_end(monkeypatch):
@@ -164,3 +166,17 @@ def test_collect_investing_highs_end_to_end(monkeypatch):
     assert names == ["벡트", "아이크래프트"]          # 거래정지주(거래량0), Foreign Co(미매칭) 제외
     assert all(h.close_price > 0 for h in highs)
     assert caps["052460"] == 111
+
+
+def test_build_highs_puts_daily_change_in_change_pct():
+    """당일 등락률은 change_pct로, breakout_pct는 이력 확보 전까지 0.0."""
+    from src.investing_high import InvestingHighRow, build_highs
+
+    row = InvestingHighRow(
+        name="삼성전자", ticker="005930",
+        last_price=78500.0, change_pct=3.1, volume=1000,
+    )
+    highs = build_highs([(row, "005930", "KOSPI")], {}, {"005930": "전기전자"})
+
+    assert highs[0].change_pct == 3.1
+    assert highs[0].breakout_pct == 0.0

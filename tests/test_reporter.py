@@ -85,3 +85,31 @@ async def test_send_report():
         call_kwargs = mock_bot.send_message.call_args[1]
         assert call_kwargs["chat_id"] == 123456
         assert call_kwargs["text"] == "Test message"
+
+
+def test_report_shows_and_sorts_by_change_pct():
+    """리포트의 +x.x%는 당일 등락률(change_pct)이고, 정렬도 그 기준이다."""
+    from datetime import date
+    from src.reporter import Reporter
+    from src.models import ScanResult, StockHigh, MarketStats
+
+    def _stock(ticker, name, change_pct):
+        return StockHigh(
+            ticker=ticker, name=name, market="KOSPI", sector="전기전자",
+            close_price=1000, high_52w=1000, prev_high_52w=0.0,
+            breakout_pct=0.0, volume=1, avg_volume_20d=0, change_pct=change_pct,
+        )
+
+    lows, highs_ = _stock("000001", "낮은종목", 1.0), _stock("000002", "높은종목", 9.0)
+    result = ScanResult(
+        scan_date=date(2026, 8, 19),
+        stats=MarketStats(total_stocks=2, new_high_count=2, kospi_count=2),
+        highs=[lows, highs_], sector_breakdown={"전기전자": [lows, highs_]},
+    )
+
+    text = Reporter(bot_token="", chat_id=0).format_report(result, [], [])
+
+    assert "+9.0%" in text and "+1.0%" in text
+    # 섹터별 TOP 섹션에도 종목명이 나오므로, 전체 목록 구간만 잘라서 순서를 본다
+    listing = text.split("■ 전체 52주 신고가 목록")[1]
+    assert listing.index("높은종목") < listing.index("낮은종목")  # 등락률 내림차순

@@ -100,7 +100,7 @@ class Reporter:
                     link = _stock_link(stock.name, stock.ticker)
                     lines.append(
                         f"▶ {link} | "
-                        f"{stock.close_price:,.0f}원 | +{stock.breakout_pct:.1f}%"
+                        f"{stock.close_price:,.0f}원 | +{stock.change_pct:.1f}%"
                     )
                     lines.append(escape(a.ai_analysis))
                     if a.news_links:
@@ -112,11 +112,11 @@ class Reporter:
             lines.append("")
 
         lines.append("<b>■ 전체 52주 신고가 목록</b>")
-        for stock in sorted(result.highs, key=lambda h: h.breakout_pct, reverse=True):
+        for stock in sorted(result.highs, key=lambda h: h.change_pct, reverse=True):
             link = _stock_link(stock.name, stock.ticker)
             lines.append(
                 f"  {link} | {stock.close_price:,.0f}원 | "
-                f"+{stock.breakout_pct:.1f}% | {escape(stock.sector)}"
+                f"+{stock.change_pct:.1f}% | {escape(stock.sector)}"
             )
 
         return "\n".join(lines)
