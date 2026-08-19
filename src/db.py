@@ -15,7 +15,20 @@ class Base(DeclarativeBase):
 
 
 def _migrate_add_recency_columns(engine) -> None:
-    """new_highs에 돌파 신선도 컬럼을 멱등 추가. 테이블이 없으면 조용히 반환."""
+    """new_highs에 돌파 신선도 컬럼을 멱등 추가하고 레거시 행을 보정한다.
+
+    스키마뿐 아니라 데이터도 마이그레이션한다. 이 브랜치 이전 코드는
+    breakout_pct에 '당일 등락률'을 저장했고 change_pct는 존재하지 않았다.
+    지금의 breakout_pct는 '직전 52주 고점 대비 돌파율'이라 의미가 다르므로,
+    레거시 행을 그대로 읽으면 +5.2% 상승이 "5.2% 돌파"로 둔갑한다.
+
+    따라서 change_pct가 NULL인 행에 한해 값을 change_pct로 옮기고
+    breakout_pct는 0으로 되돌린다. 신규 코드는 change_pct를 항상 NOT NULL로
+    쓰므로 WHERE 절은 레거시 행에만 걸리고, 매 기동마다 실행해도 안전하다
+    (한 번 보정된 행은 change_pct가 채워져 다시 걸리지 않는다).
+
+    테이블이 없으면 조용히 반환한다.
+    """
     from sqlalchemy import inspect
 
     insp = inspect(engine)
@@ -34,6 +47,11 @@ def _migrate_add_recency_columns(engine) -> None:
         for name, sqltype in to_add:
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE new_highs ADD COLUMN {name} {sqltype}"))
+        # 레거시 행 보정: 당일 등락률이 breakout_pct에 들어가 있던 시절의 데이터
+        conn.execute(text(
+            "UPDATE new_highs SET change_pct = breakout_pct, breakout_pct = 0 "
+            "WHERE change_pct IS NULL"
+        ))
 
 
 class DailyScan(Base):
