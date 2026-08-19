@@ -52,8 +52,9 @@ DEPTH_DECADE_DAYS = 3650     # 이상 → 10년래 최고
 GROUP_LONG = "장기 돌파 · 1년 이상 만"
 GROUP_MID = "중기 돌파 · 1~12개월"
 GROUP_STREAK = "신고가 행진 · 1개월 내 재돌파"
+GROUP_NEW_LISTING = "신규 상장 · 이력 1년 미만"
 GROUP_UNKNOWN = "정보 없음"
-GROUP_ORDER = (GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_UNKNOWN)
+GROUP_ORDER = (GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_NEW_LISTING, GROUP_UNKNOWN)
 
 
 def _fmt_span(days: int) -> str:
@@ -75,8 +76,12 @@ def _recency_badge(stock) -> str | None:
         return None
     a = stock.days_since_prev_new_high
     if a is None:
-        # 확보 구간 안에 직전 신고가가 없음 — 워밍업 52주를 뺀 값이 하한
-        floor_days = max(stock.history_span_days - RECENCY_LONG_DAYS, 0)
+        # 확보 구간 안에 직전 신고가가 없음 — 워밍업 52주를 뺀 값이 하한.
+        # 이력이 워밍업보다 짧으면(상장 1년 미만) 하한이 0 이하라 말할 수
+        # 있는 것이 없다. "0일 이상 만" 같은 공허한 배지 대신 생략한다.
+        floor_days = stock.history_span_days - RECENCY_LONG_DAYS
+        if floor_days <= 0:
+            return None
         return f"🆕 {_fmt_span(floor_days)} 이상 만 (첫 돌파)"
     if a <= RECENCY_STREAK_DAYS:
         return "🔁 신고가 행진"
@@ -101,6 +106,10 @@ def _recency_group(stock) -> str:
     if stock.history_span_days is None:
         return GROUP_UNKNOWN
     a = stock.days_since_prev_new_high
+    # 상장 1년 미만 종목의 A=None은 "오랜만의 돌파"가 아니라 이력 부족이다.
+    # 장기 돌파로 묶으면 거짓이 되므로 별도 그룹으로 뺀다.
+    if a is None and stock.history_span_days < RECENCY_LONG_DAYS:
+        return GROUP_NEW_LISTING
     if a is None or a >= RECENCY_LONG_DAYS:
         return GROUP_LONG
     if a > RECENCY_SHORT_DAYS:

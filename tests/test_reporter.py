@@ -241,3 +241,43 @@ def test_report_stays_flat_when_no_stock_has_metrics():
 
     assert "[정보 없음]" not in text
     assert "장기 돌파" not in text
+
+
+def test_recency_badge_is_omitted_for_recently_listed_stock():
+    """상장 1년 미만(이력 < 워밍업 52주)이면 하한을 말할 수 없으므로 A 배지는 없다."""
+    from src.reporter import _recency_badge, _depth_badge
+
+    stock = _rstock(a=None, b=None, span=99)
+    assert _recency_badge(stock) is None
+    # 깊이 배지는 참이므로 그대로 남는다
+    assert _depth_badge(stock) == "🏔 상장 이후 최고"
+
+
+def test_recency_badge_floor_boundary_at_one_year():
+    """하한이 0 이하면 생략, 1일이라도 남으면 표기한다."""
+    from src.reporter import _recency_badge
+
+    assert _recency_badge(_rstock(a=None, span=365)) is None
+    assert _recency_badge(_rstock(a=None, span=366)) == "🆕 1일 이상 만 (첫 돌파)"
+
+
+def test_recently_listed_stock_goes_to_new_listing_group():
+    from src.reporter import _recency_group, GROUP_NEW_LISTING
+
+    assert _recency_group(_rstock(a=None, span=99)) == GROUP_NEW_LISTING
+    # 이력이 1년 이상이면 종전대로 장기 돌파
+    assert _recency_group(_rstock(a=None, span=4000)).startswith("장기 돌파")
+    # A를 아는 종목은 이력이 짧아도 A 기준 그룹을 따른다
+    assert _recency_group(_rstock(a=10, span=99)).startswith("신고가 행진")
+
+
+def test_report_shows_new_listing_group_without_empty_floor_badge():
+    from src.reporter import Reporter, GROUP_NEW_LISTING
+
+    highs = [_rstock("000001", "신규상장", a=None, b=None, span=99)]
+    text = Reporter(bot_token="", chat_id=0).format_report(_result(highs), [], [])
+
+    assert f"[{GROUP_NEW_LISTING}]" in text
+    assert "0일 이상 만" not in text
+    assert "[장기 돌파 · 1년 이상 만]" not in text
+    assert "🏔 상장 이후 최고" in text
