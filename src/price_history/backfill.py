@@ -1,6 +1,6 @@
 """일봉 적재 오케스트레이션 — 초기 백필과 일일 증분.
 
-초기 백필은 약 5,400 요청(11년 x 2시장)으로 실측 16분이 걸린다. 이미
+초기 백필은 5,740 요청(11년 x 2시장)으로 실측 12.1분이 걸린다(742MB). 이미
 적재된 날짜를 건너뛰므로 중단돼도 다시 실행하면 이어받는다.
 """
 from __future__ import annotations
@@ -91,7 +91,7 @@ def sync(
     """시장별 최신 적재일 중 가장 이른 날짜 - SYNC_SAFETY_DAYS부터 오늘까지 채운다.
 
     저장소가 비어 있거나 시장 중 하나라도 적재 이력이 없으면 아무것도 받지
-    않는다 — 16분짜리 백필을 자동으로 시작하면 안 된다. 경고만 남기고
+    않는다 — 12분짜리 백필을 자동으로 시작하면 안 된다. 경고만 남기고
     사용자가 'prices backfill'을 실행하게 한다.
 
     시작일을 두 시장 통합 MAX(d)가 아니라 시장별 최신일 중 최솟값에서
@@ -105,7 +105,7 @@ def sync(
     if any(x is None for x in lasts):
         logger.warning(
             "일봉 저장소가 비어 있거나 일부 시장 데이터가 없습니다. "
-            "'python -m src.cli prices backfill'을 먼저 실행하세요(약 16분). "
+            "'python -m src.cli prices backfill'을 먼저 실행하세요(약 12분). "
             "돌파 신선도는 이번 실행에서 생략됩니다."
         )
         return {"requested": 0, "loaded_days": 0, "rows": 0, "skipped": 0}

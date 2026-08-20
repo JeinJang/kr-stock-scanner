@@ -309,7 +309,7 @@ def prices_backfill(
     years: int = typer.Option(11, "--years", "-y", help="적재할 과거 연수"),
     workers: int = typer.Option(8, "--workers", "-w", help="동시 요청 수"),
 ):
-    """KRX Open API로 일봉 이력을 적재한다(11년 기준 약 16분). 재실행하면 이어받는다."""
+    """KRX Open API로 일봉 이력을 적재한다(11년 기준 5,740 요청·약 12분). 재실행하면 이어받는다."""
     from src.price_history.backfill import backfill
     from src.price_history.db import PriceDB
 
