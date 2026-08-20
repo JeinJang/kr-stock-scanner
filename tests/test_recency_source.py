@@ -106,3 +106,27 @@ def test_enrich_fills_when_last_bar_date_matches_as_of(tmp_path):
     recency_source.enrich_highs([stock], date(2026, 8, 19), db=db)
     assert stock.history_span_days == 399
     assert stock.high_52w == 110.0
+
+
+def test_mismatch_warning_uses_shared_rule(tmp_path, monkeypatch):
+    """불일치 판정은 breakout_recency.is_history_mismatch 한 곳에서만 나온다(F4)."""
+    db = PriceDB(path=str(tmp_path / "prices.db"))
+    end = date(2026, 8, 19)
+    days = 400
+    for i in range(days):
+        d = (end - timedelta(days=days - 1 - i)).strftime("%Y%m%d")
+        h = 120 if i == days - 30 else (110 if i == days - 1 else 100)
+        db.save_day(d, "KOSPI", [("005930", h, h, 0)])
+
+    seen = []
+
+    def spy(b):
+        seen.append(b)
+        return True
+
+    monkeypatch.setattr(recency_source, "is_history_mismatch", spy)
+    stock = _stock(close=100.0)
+    recency_source.enrich_highs([stock], end, db=db)
+
+    assert seen == [stock.days_since_price_above]
+    assert stock.days_since_price_above == 29

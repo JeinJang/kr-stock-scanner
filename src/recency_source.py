@@ -10,7 +10,7 @@ from datetime import date
 
 from loguru import logger
 
-from src.breakout_recency import compute_recency
+from src.breakout_recency import compute_recency, is_history_mismatch
 from src.models import StockHigh
 from src.price_history.loader import load_bars
 
@@ -77,7 +77,9 @@ def enrich_highs(
                 (recency.today_high - recency.prev_high_52w) / recency.prev_high_52w * 100, 2
             )
 
-        if recency.days_since_price_above is not None and recency.days_since_price_above < 365:
+        # 규칙은 breakout_recency에 한 벌만 둔다 — 여기 상수를 다시 적으면
+        # 그룹 분류·헤드라인 카운트와 따로 놀 수 있다.
+        if is_history_mismatch(recency.days_since_price_above):
             logger.warning(
                 f"{stock.name}({stock.ticker}) B={recency.days_since_price_above}일 — "
                 f"52주 신고가와 불일치(액면병합 등 investing 미반영 가능성)"
