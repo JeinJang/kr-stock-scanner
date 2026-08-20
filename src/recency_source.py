@@ -6,12 +6,17 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from math import ceil
 
 from loguru import logger
 
 from src.breakout_recency import Bar, compute_recency
 from src.krx_login_client import KrxBlockedError
 from src.models import StockHigh
+
+# KRX 종목별 단건 조회 상한(2026-08-20 실측). 이 폭을 넘겨 요청하면 오류가
+# 아니라 빈 응답(LOGOUT)이 온다 — 그래서 첫 요청부터 이 폭으로 쪼갠다.
+CHUNK_DAYS = 730
 
 
 def _to_bars(df) -> list[Bar]:
@@ -36,12 +41,15 @@ def fetch_bars(
     ticker: str,
     as_of: date,
     years: int = 11,
-    max_calls: int = 4,
+    chunk_days: int = CHUNK_DAYS,
+    max_calls: int | None = None,
 ) -> list[Bar] | None:
-    """as_of 기준 years년치 수정주가 일봉을 가져온다.
+    """as_of 기준 years년치 수정주가 일봉을 chunk_days 폭으로 나눠 가져온다.
 
-    한 번에 다 오면 1콜로 끝난다. 응답이 잘리면 반환된 첫 거래일 직전까지
-    역방향으로 다시 요청한다. supports_history가 False인 클라이언트에서는 None.
+    KRX는 종목당 조회 폭이 chunk_days를 넘으면 잘라주는 게 아니라 빈 응답을
+    준다. 그래서 첫 요청부터 [cursor_end - (chunk_days-1), cursor_end] 폭으로
+    쪼개 요청하고, 성공할 때마다 커서를 그 구간 시작일 하루 전으로 물려
+    역방향으로 이어간다. supports_history가 False인 클라이언트에서는 None.
 
     빈 응답은 곧바로 상장 시점으로 단정하지 않는다. KrxLoginClient._post는
     HTTP != 200, LOGOUT, JSON 파싱 실패에도 []를 돌려주므로 "그 앞에 데이터가
@@ -50,19 +58,29 @@ def fetch_bars(
     데이터가 나오면 첫 응답이 헛것이었다는 뜻이므로 경고를 남기고 그 값으로
     계속 진행한다. 재요청도 max_calls 예산을 소비한다.
 
-    이력이 실제로 start까지 닿았음이 확인된 경우에만 리스트를 반환한다.
-    호출 수(max_calls) 소진이나 중간 실패로 완결을 확인하지 못하면 잘린
-    리스트를 조용히 넘기는 대신 None을 반환한다 — 하위 계산(history_span_days
-    등)은 "이력 전체 확보"를 전제하므로, 잘린 리스트를 넘기면 "상장 이후
-    최고" 같은 판정이 사용자에게 틀린 확신으로 노출된다. 대신 로그로
-    소진 사실을 남겨 운영자가 확인할 수 있게 한다. (max_calls는 절대
-    늘리지 않는다 — 종목당 호출 수를 늘리는 것은 과거 거래소 IP 차단을
+    완료 판정은 "요청한 구간의 시작일이 실제로 start에 닿았는가"로 본다
+    (반환된 데이터의 가장 이른 날짜가 아니라). 요청 기준이라 거래일 공백 같은
+    거래소 응답의 우연에 흔들리지 않는다. 호출 수(max_calls) 소진이나 중간
+    실패로 완결을 확인하지 못하면 잘린 리스트를 조용히 넘기는 대신 None을
+    반환한다 — 하위 계산(history_span_days 등)은 "이력 전체 확보"를 전제하므로,
+    잘린 리스트를 넘기면 "상장 이후 최고" 같은 판정이 사용자에게 틀린 확신으로
+    노출된다. 대신 로그로 소진 사실을 남겨 운영자가 확인할 수 있게 한다.
+
+    max_calls를 넘기지 않으면 필요 청크 수(ceil((as_of-start)/chunk_days)) +
+    재확인 재요청 여유분(2)으로 자동 계산한다. 하드코딩하지 않는 이유는
+    chunk_days·years가 바뀌어도 예산이 맞게 따라오게 하기 위함이다 — 예산을
+    고정값으로 박아두는 것이 이번 결함의 원인이었다. (호출 수 자체를 함부로
+    늘리지는 않는다 — 종목당 호출 수를 늘리는 것은 과거 거래소 IP 차단을
     유발한 바로 그 위험이다.)
     """
     if not getattr(client, "supports_history", False):
         return None
 
     start = as_of - timedelta(days=int(365.25 * years))
+    if max_calls is None:
+        chunks_needed = ceil((as_of - start).days / chunk_days)
+        max_calls = chunks_needed + 2   # 빈 응답 재확인 재요청 여유분
+
     bars: list[Bar] = []
     cursor_end = as_of
     complete = False
@@ -70,11 +88,11 @@ def fetch_bars(
 
     _FAILED = object()   # 조회 자체가 실패한 경우 (빈 응답과 구분)
 
-    def _request(end_date: date):
+    def _request(range_start: date, range_end: date):
         nonlocal calls_made
         try:
             df = client.get_market_ohlcv_by_date(
-                start.strftime("%Y%m%d"), end_date.strftime("%Y%m%d"),
+                range_start.strftime("%Y%m%d"), range_end.strftime("%Y%m%d"),
                 ticker, adjusted=True,
             )
             calls_made += 1
@@ -86,9 +104,8 @@ def fetch_bars(
         return _to_bars(df)
 
     while calls_made < max_calls:
-        if cursor_end < start:
-            break
-        chunk = _request(cursor_end)
+        chunk_start = max(start, cursor_end - timedelta(days=chunk_days - 1))
+        chunk = _request(chunk_start, cursor_end)
         if chunk is _FAILED:
             return None
 
@@ -97,7 +114,7 @@ def fetch_bars(
             # 같은 구간을 한 번 더 물어 확인한다(예산 소진 시에는 확인 불가).
             if calls_made >= max_calls:
                 break
-            retry = _request(cursor_end)
+            retry = _request(chunk_start, cursor_end)
             if retry is _FAILED:
                 return None
             if not retry:
@@ -106,16 +123,16 @@ def fetch_bars(
                 break
             logger.warning(
                 f"{ticker} 빈 응답 재요청에서 {len(retry)}봉 반환 "
-                f"(구간 {start}~{cursor_end}) — 거래소 일시 오류로 보고 계속 진행"
+                f"(구간 {chunk_start}~{cursor_end}) — 거래소 일시 오류로 보고 계속 진행"
             )
             chunk = retry
 
         bars = chunk + bars
-        # 요청 시작일 근처까지 왔으면 완료 (거래일 공백 감안해 7일 여유)
-        if chunk[0].date <= start + timedelta(days=7):
+        # 요청 구간의 시작일이 목표 시작일에 닿았으면 완료
+        if chunk_start <= start:
             complete = True
             break
-        cursor_end = chunk[0].date - timedelta(days=1)
+        cursor_end = chunk_start - timedelta(days=1)
 
     if not complete:
         earliest = bars[0].date if bars else as_of
