@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.krx_login_client import KrxLoginClient, KrxBlockedError, _is_block_page
+from src.krx_login_client import KrxLoginClient, KrxBlockedError, _is_block_page, _BLD
 
 
 _BLOCK_HTML = """<html>
@@ -52,3 +52,45 @@ def test_post_short_circuits_when_already_blocked():
     with pytest.raises(KrxBlockedError):
         c._post("some/bld", {})
     c._session.post.assert_not_called()
+
+
+def test_get_all_market_ohlcv_maps_kosdaq_global_and_drops_konex():
+    """MKT_NM 매핑: KOSPI/KOSDAQ 그대로, KOSDAQ GLOBAL은 KOSDAQ로 합치고
+    KONEX는 버린다 — 저장소 20260819 KOSPI 942·KOSDAQ 1,821(1,771+50)건과
+    정확히 일치함을 실측으로 확인한 매핑."""
+    c = KrxLoginClient(krx_id="x", krx_pw="y")
+    rows = [
+        {"ISU_SRT_CD": "005930", "MKT_NM": "KOSPI", "TDD_HGPRC": "273,000",
+         "TDD_CLSPRC": "271,000", "CMPPREVDD_PRC": "23,500"},
+        {"ISU_SRT_CD": "035720", "MKT_NM": "KOSDAQ", "TDD_HGPRC": "50,000",
+         "TDD_CLSPRC": "49,000", "CMPPREVDD_PRC": "-1,000"},
+        {"ISU_SRT_CD": "999999", "MKT_NM": "KOSDAQ GLOBAL", "TDD_HGPRC": "1,000",
+         "TDD_CLSPRC": "900", "CMPPREVDD_PRC": "0"},
+        {"ISU_SRT_CD": "111111", "MKT_NM": "KONEX", "TDD_HGPRC": "1,000",
+         "TDD_CLSPRC": "900", "CMPPREVDD_PRC": "0"},
+    ]
+    c._post = MagicMock(return_value=rows)
+
+    df = c.get_all_market_ohlcv("20260820")
+
+    assert set(df.index) == {"005930", "035720", "999999"}
+    assert df.loc["005930", "시장"] == "KOSPI"
+    assert df.loc["035720", "시장"] == "KOSDAQ"
+    assert df.loc["999999", "시장"] == "KOSDAQ"  # KOSDAQ GLOBAL -> KOSDAQ
+    assert df.loc["005930", "고가"] == 273000
+    assert df.loc["005930", "종가"] == 271000
+    assert df.loc["005930", "전일대비"] == 23500
+
+
+def test_get_all_market_ohlcv_requests_mkt_id_all():
+    c = KrxLoginClient(krx_id="x", krx_pw="y")
+    c._post = MagicMock(return_value=[])
+    c.get_all_market_ohlcv("20260820")
+    c._post.assert_called_once_with(_BLD["ohlcv_by_ticker"], {"mktId": "ALL", "trdDd": "20260820"})
+
+
+def test_get_all_market_ohlcv_empty_when_no_rows():
+    c = KrxLoginClient(krx_id="x", krx_pw="y")
+    c._post = MagicMock(return_value=[])
+    df = c.get_all_market_ohlcv("20260820")
+    assert df.empty
