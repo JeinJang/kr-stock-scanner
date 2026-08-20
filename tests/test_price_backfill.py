@@ -164,6 +164,18 @@ def test_sync_fills_today_from_login_client_when_openapi_has_nothing(tmp_path):
     assert res["rows"] >= 2
     assert "20260819" in db.loaded_dates("KOSPI")
     assert "20260819" in db.loaded_dates("KOSDAQ")
+    # 값까지 되읽는다 — 날짜·행수만 보면 시장이 뒤바뀌거나 레코드 튜플의
+    # 필드 순서가 틀려도 통과한다.
+    stored = {
+        tk: (market, high, close, chg)
+        for tk, market, high, close, chg in db.con.execute(
+            "SELECT ticker, market, high, close, chg FROM daily_px WHERE d='20260819'"
+        )
+    }
+    assert stored == {
+        "005930": ("KOSPI", 110, 108, 3),
+        "035720": ("KOSDAQ", 55, 54, 1),
+    }
 
 
 def test_sync_does_not_call_login_client_when_today_already_loaded(tmp_path):
