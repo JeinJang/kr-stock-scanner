@@ -79,3 +79,19 @@ def test_collection_blocked_reason_mentions_alternatives():
     assert reason is not None
     assert "collect --date" in reason
     assert "history --date" in reason
+
+
+def test_cli_prices_subcommands_exist():
+    """prices backfill / sync / status 가 노출된다."""
+    from src.cli import app
+    result = runner.invoke(app, ["prices", "--help"])
+    assert result.exit_code == 0
+    for sub in ("backfill", "sync", "status"):
+        assert sub in result.output
+
+
+def test_cli_prices_backfill_has_years_option():
+    from src.cli import app
+    result = runner.invoke(app, ["prices", "backfill", "--help"])
+    assert result.exit_code == 0
+    assert "--years" in result.output
