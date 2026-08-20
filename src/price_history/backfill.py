@@ -92,6 +92,13 @@ def _fill_same_day(db, krx_client, end: date) -> int:
     시점에 이미 당일 데이터를 갖고 있어, mktId=ALL 통합 조회 한 번으로
     두 시장 모두를 대신 채운다. 두 시장 모두 이미 당일이 있으면 호출조차
     하지 않는다.
+
+    조회부터 저장까지 전부를 하나의 try로 감싼다. get_all_market_ohlcv는
+    가격 컬럼이 없어도 프레임을 돌려주므로(ISU_SRT_CD·MKT_NM만 필수),
+    KRX가 컬럼명을 바꾸면 변환 단계에서 KeyError가 난다. 그 예외가 sync
+    밖으로 새면 cli의 _sync_price_store_or_warn이 KrxApiError만 잡는 탓에
+    run 전체가 중단돼 리포트가 나가지 않는다. 당일 보완 실패는 경고만
+    남기고 sync는 정상 반환해야 한다.
     """
     if krx_client is None:
         return 0
@@ -101,11 +108,15 @@ def _fill_same_day(db, krx_client, end: date) -> int:
         return 0
 
     try:
-        df = krx_client.get_all_market_ohlcv(today_str)
+        return _do_fill_same_day(db, krx_client, today_str, missing)
     except Exception as e:
-        logger.warning(f"로그인 클라이언트 당일({today_str}) 조회 실패, 당일 채우기 생략: {e}")
+        logger.warning(f"로그인 클라이언트 당일({today_str}) 채우기 실패, 생략: {e}")
         return 0
 
+
+def _do_fill_same_day(db, krx_client, today_str: str, missing: list[str]) -> int:
+    """조회·변환·저장 본체. 예외는 호출자(_fill_same_day)가 삼킨다."""
+    df = krx_client.get_all_market_ohlcv(today_str)
     if df is None or df.empty:
         return 0
 

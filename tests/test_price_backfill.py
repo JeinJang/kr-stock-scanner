@@ -190,6 +190,31 @@ def test_sync_survives_login_client_error(tmp_path):
     assert "20260819" not in db.loaded_dates("KOSPI")
 
 
+def test_sync_survives_login_client_frame_missing_price_column(tmp_path):
+    """가격 컬럼이 빠진 프레임이 와도 sync는 정상 반환한다.
+
+    get_all_market_ohlcv는 ISU_SRT_CD·MKT_NM만 필수라 KRX가 TDD_HGPRC를
+    개명하면 고가 없는 프레임이 온다. 그 KeyError가 sync 밖으로 새면
+    cli의 _sync_price_store_or_warn(KrxApiError만 포착)을 통과해 run이
+    통째로 죽고 리포트가 나가지 않는다.
+    """
+    db = _db(tmp_path)
+    db.save_day("20260818", "KOSPI", [("005930", 100, 100, 0)])
+    db.save_day("20260818", "KOSDAQ", [("035720", 50, 50, 0)])
+    no_high = pd.DataFrame(
+        {"시장": ["KOSPI", "KOSDAQ"], "종가": [108, 54], "전일대비": [3, 1]},
+        index=pd.Index(["005930", "035720"], name="티커"),
+    )
+    fake_client = FakeKrxClient(no_high)
+
+    res = sync(db, "KEY", today=date(2026, 8, 19), workers=2,
+               _get=_maker({}, []), krx_client=fake_client)
+
+    assert res["same_day_rows"] == 0
+    assert "20260819" not in db.loaded_dates("KOSPI")
+    assert "20260819" not in db.loaded_dates("KOSDAQ")
+
+
 def test_refetch_removes_and_readds_date(tmp_path):
     db = _db(tmp_path)
     db.save_day("20260819", "KOSPI", [("005930", 100, 90, -5)])
