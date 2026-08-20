@@ -5,8 +5,9 @@
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
+import pandas as pd
 from loguru import logger
 
 from src.price_history.adjust import detect_adjustments
@@ -17,6 +18,26 @@ from src.price_history.fetcher import MARKET_ENDPOINTS, fetch_many
 # date)를 다시 후보에 올리게 한다. _load가 이미 있는 (market,date)는
 # 걸러내므로 이 창을 두어도 요청 수는 늘지 않는다.
 SYNC_SAFETY_DAYS = 10
+
+# 로그인 클라이언트로 당일을 채울 수 있는 가장 이른 시각(KST). 장 마감
+# 15:30에서 10분을 둔다. 그 전에 채우면 장중 고가와 현재가가 그날의 확정
+# 일봉으로 굳고, 이후 sync는 그 날짜가 이미 적재됐다며 건너뛰므로 부분
+# 일봉이 영구히 남는다. prices sync는 손으로도 아무 때나 실행되므로
+# 시각 가드가 필요하다.
+SAME_DAY_AFTER_HOUR_KST = 15
+SAME_DAY_AFTER_MINUTE_KST = 40
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _now_kst(now: datetime | None = None) -> datetime:
+    """현재 시각(KST). 주입 가능하게 두어 시계를 얼리지 않고 테스트한다.
+
+    naive datetime은 이미 KST로 본다.
+    """
+    if now is None:
+        return datetime.now(_KST)
+    return now.astimezone(_KST) if now.tzinfo is not None else now
 
 
 def _to_date(s: str) -> date:
@@ -84,7 +105,7 @@ def backfill(
     return res
 
 
-def _fill_same_day(db, krx_client, end: date) -> int:
+def _fill_same_day(db, krx_client, end: date, now: datetime | None = None) -> int:
     """오픈 API가 아직 당일 데이터를 주지 않을 때 로그인 클라이언트로 채운다.
 
     실측: 장 마감(15:30) 후 15:42·16:53·17:46에도 오픈 API의 모든 엔드포인트가
@@ -92,6 +113,10 @@ def _fill_same_day(db, krx_client, end: date) -> int:
     시점에 이미 당일 데이터를 갖고 있어, mktId=ALL 통합 조회 한 번으로
     두 시장 모두를 대신 채운다. 두 시장 모두 이미 당일이 있으면 호출조차
     하지 않는다.
+
+    장 마감 직후가 아니면 아예 시도하지 않는다(SAME_DAY_AFTER_*_KST).
+    장중에 채우면 그 시점의 고가·현재가가 그날의 확정 일봉으로 굳고,
+    이후 sync는 그 날짜를 이미 적재됐다고 보고 건너뛴다.
 
     조회부터 저장까지 전부를 하나의 try로 감싼다. get_all_market_ohlcv는
     가격 컬럼이 없어도 프레임을 돌려주므로(ISU_SRT_CD·MKT_NM만 필수),
@@ -107,6 +132,16 @@ def _fill_same_day(db, krx_client, end: date) -> int:
     if not missing:
         return 0
 
+    now_kst = _now_kst(now)
+    cutoff = (SAME_DAY_AFTER_HOUR_KST, SAME_DAY_AFTER_MINUTE_KST)
+    if (now_kst.hour, now_kst.minute) < cutoff:
+        logger.info(
+            f"{now_kst:%H:%M} KST는 당일 보완 기준 시각 "
+            f"{cutoff[0]:02d}:{cutoff[1]:02d} 이전이라 {today_str} 당일 채우기를 "
+            f"건너뜁니다(장중 값이 확정 일봉으로 굳는 것을 막습니다)."
+        )
+        return 0
+
     try:
         return _do_fill_same_day(db, krx_client, today_str, missing)
     except Exception as e:
@@ -115,18 +150,34 @@ def _fill_same_day(db, krx_client, end: date) -> int:
 
 
 def _do_fill_same_day(db, krx_client, today_str: str, missing: list[str]) -> int:
-    """조회·변환·저장 본체. 예외는 호출자(_fill_same_day)가 삼킨다."""
+    """조회·변환·저장 본체. 예외는 호출자(_fill_same_day)가 삼킨다.
+
+    휴장일에도 로그인 BLD는 빈 결과가 아니라 전 종목(실측 2,872행)을
+    가격 필드 '-'로 채워 돌려준다. 그대로 파싱하면 0원 일봉 2,872행이
+    저장되고, 그 날짜는 '적재됨'이 되어 다시 요청되지도 않는다. 전 종목
+    고가가 하나도 양수가 아니면 비거래일로 보고 아무것도 저장하지 않는다.
+    """
     df = krx_client.get_all_market_ohlcv(today_str)
     if df is None or df.empty:
         return 0
+
+    highs = pd.to_numeric(df["고가"], errors="coerce")
+    if not bool((highs > 0).any()):
+        logger.info(
+            f"{today_str}은 전 종목 고가가 비어 있어 비거래일로 봅니다"
+            f"({len(df):,}행). 당일 채우기를 생략합니다."
+        )
+        return 0
+    # 숫자로 읽히지 않는 고가만 버린다. 실제 거래일의 정지 종목은 고가 0으로
+    # 오는데 그건 그대로 저장한다 — loader가 걸러내고, 보정 계산이 인접
+    # 정지행을 필요로 한다. 판별 기준은 시장 전체가 비었는지 여부다.
+    df = df[highs.notna()]
 
     total = 0
     for market in missing:
         sub = df[df["시장"] == market]
         if sub.empty:
             continue
-        # 정지 종목(고가 0)도 그대로 저장 — loader가 걸러내고, 보정 계산이
-        # 인접 정지행을 필요로 한다.
         records = [
             (ticker, row["고가"], row["종가"], row["전일대비"])
             for ticker, row in sub.iterrows()
@@ -143,6 +194,7 @@ def _do_fill_same_day(db, krx_client, today_str: str, missing: list[str]) -> int
 def sync(
     db, api_key: str, workers: int = 8,
     today: date | None = None, _get=None, *, krx_client=None,
+    now: datetime | None = None,
 ) -> dict:
     """시장별 최신 적재일 중 가장 이른 날짜 - SYNC_SAFETY_DAYS부터 오늘까지 채운다.
 
@@ -158,7 +210,8 @@ def sync(
 
     krx_client를 주면, 오픈 API 적재 뒤에도 당일이 두 시장 중 하나라도
     빠져 있을 때 로그인 클라이언트로 보완한다(_fill_same_day). 실패해도
-    KrxApiError처럼 sync 자체는 정상 반환한다.
+    KrxApiError처럼 sync 자체는 정상 반환한다. now는 그 보완의 시각
+    가드에 쓰이며, 주지 않으면 현재 KST 시각을 읽는다.
     """
     end = today or date.today()
     lasts = [db.last_loaded_date(m) for m in MARKET_ENDPOINTS]
@@ -178,7 +231,7 @@ def sync(
     days = business_days(start, end)
     res = _load(db, api_key, days, workers, _get)
 
-    same_day_rows = _fill_same_day(db, krx_client, end)
+    same_day_rows = _fill_same_day(db, krx_client, end, now)
     res["rows"] += same_day_rows
     res["same_day_rows"] = same_day_rows
 
