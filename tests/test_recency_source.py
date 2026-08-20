@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from src.recency_source import fetch_bars
+from src.recency_source import CHUNK_DAYS, fetch_bars
 
 
 class FakeClient:
@@ -32,14 +32,15 @@ def test_returns_none_when_client_has_no_history_support():
 
 
 def test_single_call_when_full_range_returned():
-    frame = _frame([("20150820", 100.0), ("20260819", 200.0)])
+    # 요청 폭(1년)이 chunk_days(730일)보다 좁으므로 첫 청크가 곧 start까지 닿는다
+    frame = _frame([("20250819", 100.0), ("20260819", 200.0)])
     client = FakeClient([frame])
 
-    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=1)
 
     assert len(client.calls) == 1
     assert client.calls[0][3] is True          # adjusted=True 필수
-    assert [b.date for b in bars] == [date(2015, 8, 20), date(2026, 8, 19)]
+    assert [b.date for b in bars] == [date(2025, 8, 19), date(2026, 8, 19)]
 
 
 def test_sorts_ascending_regardless_of_response_order():
@@ -53,18 +54,52 @@ def test_sorts_ascending_regardless_of_response_order():
 
 
 def test_chunks_backwards_when_response_is_truncated():
-    # 1차 응답이 최근 1년만 → 그 앞 구간을 다시 요청해 병합
-    first = _frame([("20250820", 150.0), ("20260819", 200.0)])
-    second = _frame([("20150820", 100.0), ("20250819", 140.0)])
+    # years=3(1095일)은 730일 청크 2개가 필요 → 1차 청크 이후 그 직전 구간을 이어 요청
+    first = _frame([("20250820", 150.0), ("20260819", 200.0)])   # 1차: 2024-08-20~2026-08-19
+    second = _frame([("20230820", 100.0), ("20240819", 140.0)])  # 2차: 2023-08-20~2024-08-19(=start)
     client = FakeClient([first, second])
+
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=3)
+
+    assert len(client.calls) == 2
+    assert client.calls[0] == ("20240820", "20260819", "005930", True)
+    assert client.calls[1] == ("20230820", "20240819", "005930", True)  # 1차 청크 시작일 직전까지
+    assert [b.date for b in bars] == [
+        date(2023, 8, 20), date(2024, 8, 19), date(2025, 8, 20), date(2026, 8, 19),
+    ]
+
+
+def test_first_request_spans_no_more_than_chunk_days():
+    """KRX는 chunk_days를 넘는 조회를 오류가 아니라 빈 응답으로 거부한다 —
+    첫 요청부터 이 폭을 넘기지 않아야 한다."""
+    client = FakeClient([])   # 모든 호출에 빈 DataFrame 반환
+
+    fetch_bars(client, "005930", date(2026, 8, 19), years=11)
+
+    fromdate, todate, _, _ = client.calls[0]
+    span = date(int(todate[:4]), int(todate[4:6]), int(todate[6:8])) - date(
+        int(fromdate[:4]), int(fromdate[4:6]), int(fromdate[6:8])
+    )
+    assert span.days <= CHUNK_DAYS
+
+
+def test_full_eleven_year_history_completes_in_exactly_six_calls():
+    """4017일(11년) ÷ 730일 = 6청크 — 마지막 청크가 딱 start에 닿아 여분 호출이 없다."""
+    frames = [
+        _frame([("20240820", 100.0)]),
+        _frame([("20220821", 100.0)]),
+        _frame([("20200821", 100.0)]),
+        _frame([("20180822", 100.0)]),
+        _frame([("20160822", 100.0)]),
+        _frame([("20150820", 100.0)]),
+    ]
+    client = FakeClient(frames)
 
     bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
 
-    assert len(client.calls) == 2
-    assert client.calls[1][1] == "20250819"    # 1차 첫 거래일 직전까지
-    assert [b.date for b in bars] == [
-        date(2015, 8, 20), date(2025, 8, 19), date(2025, 8, 20), date(2026, 8, 19),
-    ]
+    assert len(client.calls) == 6
+    assert bars is not None
+    assert bars[0].date == date(2015, 8, 20)
 
 
 def test_stops_when_earlier_chunk_is_empty_newly_listed():
@@ -108,20 +143,20 @@ def test_propagates_krx_blocked_error():
 
 
 def test_returns_none_when_max_calls_exhausted_without_reaching_start():
-    # 매 응답이 계속 짧게 잘려 나와 start까지 도달하지 못하면(호출 상한 소진)
+    # 11년 이력은 6청크가 필요한데 max_calls를 3으로 눌러두면 매번 응답은
+    # 오지만(빈 응답 아님) start까지 도달하기 전에 예산이 바닥난다 —
     # 이력이 실제로 완결됐는지 알 수 없으므로 부분 리스트 대신 None.
     frames = [
-        _frame([("20260101", 100.0)]),
-        _frame([("20250101", 100.0)]),
-        _frame([("20240101", 100.0)]),
-        _frame([("20230101", 100.0)]),
+        _frame([("20240820", 100.0)]),
+        _frame([("20220821", 100.0)]),
+        _frame([("20200821", 100.0)]),
     ]
     client = FakeClient(frames)
 
-    bars = fetch_bars(client, "005930", date(2026, 8, 19))
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), max_calls=3)
 
     assert bars is None
-    assert len(client.calls) == 4    # max_calls 기본값만큼만 호출
+    assert len(client.calls) == 3    # 명시적으로 눌러둔 max_calls만큼만 호출
 
 
 def test_returns_none_when_later_chunk_fails_after_partial_success():
@@ -284,14 +319,16 @@ def test_empty_chunk_is_reconfirmed_before_treating_as_listing_date():
 
 def test_spurious_empty_chunk_is_recovered_by_retry():
     """재요청에서 데이터가 나오면 그것을 병합하고 루프를 계속한다."""
-    first = _frame([("20250820", 150.0), ("20260819", 200.0)])
-    retry = _frame([("20150820", 100.0), ("20250819", 140.0)])
+    # years=3 → 2청크. 1차 청크는 정상, 2차 청크(=start까지)는 첫 응답이 헛
+    # 빈 응답이고 재요청에서 데이터가 나온다.
+    first = _frame([("20250820", 150.0), ("20260819", 200.0)])   # 1차: 2024-08-20~2026-08-19
+    retry = _frame([("20230820", 100.0), ("20240819", 140.0)])   # 2차: 2023-08-20(=start)~2024-08-19
     client = FakeClient([first, pd.DataFrame(), retry])   # 2번째 응답이 헛 빈 응답
 
-    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=11)
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), years=3)
 
     assert [b.date for b in bars] == [
-        date(2015, 8, 20), date(2025, 8, 19), date(2025, 8, 20), date(2026, 8, 19),
+        date(2023, 8, 20), date(2024, 8, 19), date(2025, 8, 20), date(2026, 8, 19),
     ]
     assert len(client.calls) == 3
     assert client.calls[1] == client.calls[2]
@@ -299,18 +336,20 @@ def test_spurious_empty_chunk_is_recovered_by_retry():
 
 def test_retry_counts_against_max_calls():
     """재요청도 예산을 소비하므로 max_calls를 넘겨 호출하지 않는다."""
+    # 11년 이력은 6청크가 필요한데 max_calls=4로 눌러두면, 2번째 청크에서
+    # 헛 빈 응답 재확인에 예산을 쓰고 나서도 여전히 start까지 못 미친다.
     frames = [
-        _frame([("20260101", 100.0)]),
+        _frame([("20240820", 100.0)]),
         pd.DataFrame(),                       # 헛 빈 응답 → 재요청 소비
-        _frame([("20250101", 100.0)]),
-        _frame([("20240101", 100.0)]),
+        _frame([("20220821", 100.0)]),
+        _frame([("20200821", 100.0)]),
     ]
     client = FakeClient(frames)
 
-    bars = fetch_bars(client, "005930", date(2026, 8, 19))
+    bars = fetch_bars(client, "005930", date(2026, 8, 19), max_calls=4)
 
     assert bars is None                # start까지 못 갔으므로 미완결
-    assert len(client.calls) == 4      # max_calls 기본값을 넘지 않음
+    assert len(client.calls) == 4      # 눌러둔 max_calls를 넘지 않음
 
 
 def test_propagates_krx_blocked_error_from_retry():
