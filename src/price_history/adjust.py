@@ -19,6 +19,17 @@ from datetime import date
 # 패턴으로 식별 가능. 그래서 0.5%로 낮춘다.
 THRESHOLD = 0.005
 
+# 장기 거래정지가 풀리는 날, KRX는 시가 단일가 경매로 기준가를 다시 잡는다.
+# 그러면 기준가가 정지 직전 종가와 어긋나 이벤트로 잡히지만 실제로 조정된
+# 것은 없다. 실측 저장소 3,365건 중 239건이 이 유형이었고(예: 009410
+# 20241031 계수 0.983, 정지 153일), 계수가 모두 1 근처(0.90~1.10)였다.
+# 진짜 액면분할·병합도 정지 다음 날 재개되지만 계수가 50·10·5·1.8 등으로
+# 1에서 멀다. 그래서 '직전 행이 정지일(고가 0)' + '계수가 1의 ±10% 이내'
+# 두 조건이 모두 성립할 때만 경매 잡음으로 보고 버린다.
+# 감수하는 위험: 10% 미만의 진짜 이벤트(예: 5% 주식배당)의 락일이 하필
+# 정지 바로 다음 날이면 놓친다. 락일은 정상 거래일에 잡히므로 드물다.
+HALT_RESUME_MAX = 0.1
+
 
 @dataclass(frozen=True)
 class PxRow:
@@ -47,8 +58,12 @@ def detect_adjustments(rows: list[PxRow], threshold: float = THRESHOLD) -> list[
         if base <= 0 or prev <= 0:
             continue
         factor = prev / base
-        if abs(factor - 1.0) > threshold:
-            events.append(AdjustEvent(d=rows[i].d, factor=factor))
+        if abs(factor - 1.0) <= threshold:
+            continue
+        # 거래정지 해제일의 시가 경매 기준가 — 조정된 것이 없다.
+        if rows[i - 1].high == 0 and abs(factor - 1.0) < HALT_RESUME_MAX:
+            continue
+        events.append(AdjustEvent(d=rows[i].d, factor=factor))
     return events
 
 

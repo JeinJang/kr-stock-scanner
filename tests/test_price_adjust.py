@@ -90,3 +90,29 @@ def test_adjusted_highs_without_events_is_identity():
     rows = [_row(5, 110, 100, 0), _row(6, 115, 105, 5)]
     out = dict(adjusted_highs(rows, []))
     assert out == {date(2026, 1, 5): 110.0, date(2026, 1, 6): 115.0}
+
+
+def test_ignores_halt_resume_auction_base_near_one():
+    """장기 정지 해제일의 경매 기준가는 이벤트가 아니다 — 실측 009410 20241031."""
+    # 정지 직전 종가 4,700 -> 재개일 기준가 4,781 (계수 0.983)
+    rows = [_row(5, 0, 4_700, 0), _row(6, 4_800, 4_620, -161)]
+    assert detect_adjustments(rows) == []
+
+
+def test_detects_split_even_when_preceded_by_halt():
+    """정지 다음 날이라도 계수가 1에서 멀면(액면분할) 그대로 검출한다."""
+    rows = [_row(5, 0, 2_650_000, 0), _row(6, 53_900, 51_900, -1_100)]
+    assert [e.factor for e in detect_adjustments(rows)] == [50.0]
+
+
+def test_near_one_factor_without_preceding_halt_is_still_an_event():
+    """정지가 없었다면 1 근처 계수도 실제 이벤트(주식배당 등)로 남긴다."""
+    rows = [_row(5, 2_100, 2_060, 0), _row(6, 2_070, 2_040, 20)]  # 계수 1.0198
+    assert len(detect_adjustments(rows)) == 1
+
+
+def test_halt_resume_boundary_is_ten_percent():
+    """계수가 정확히 ±10% 밖이면 정지 다음 날이라도 이벤트로 남긴다."""
+    # 기준가 1,000, 전일종가 1,100 -> 계수 1.1 (HALT_RESUME_MAX 밖)
+    rows = [_row(5, 0, 1_100, 0), _row(6, 1_050, 1_020, 20)]
+    assert [round(e.factor, 4) for e in detect_adjustments(rows)] == [1.1]
