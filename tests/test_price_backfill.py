@@ -1,8 +1,10 @@
 from datetime import date
 
+import pandas as pd
+
 from src.price_history.adjust import AdjustEvent
 from src.price_history.backfill import (
-    backfill, business_days, rebuild_adjustments, sync,
+    backfill, business_days, rebuild_adjustments, refetch, sync,
 )
 from src.price_history.db import PriceDB
 
@@ -114,6 +116,95 @@ def test_sync_bounded_rebuild_preserves_older_events(tmp_path):
     sync(db, "KEY", today=date(2026, 8, 13), workers=2, _get=_maker(rows, calls))
     evs = db.load_events("005930")
     assert any(e.d == date(2026, 1, 6) and e.factor == 50.0 for e in evs)
+
+
+class FakeKrxClient:
+    """get_all_market_ohlcv만 흉내내는 로그인 클라이언트 더블."""
+
+    def __init__(self, df=None, raises=False):
+        self._df = df if df is not None else pd.DataFrame()
+        self._raises = raises
+        self.calls: list[str] = []
+
+    def get_all_market_ohlcv(self, date_str):
+        self.calls.append(date_str)
+        if self._raises:
+            raise RuntimeError("로그인 클라이언트 실패(테스트)")
+        return self._df
+
+
+def _same_day_df():
+    return pd.DataFrame(
+        {"시장": ["KOSPI", "KOSDAQ"], "고가": [110, 55], "종가": [108, 54], "전일대비": [3, 1]},
+        index=pd.Index(["005930", "035720"], name="티커"),
+    )
+
+
+def test_sync_fills_today_from_login_client_when_openapi_has_nothing(tmp_path):
+    """오픈 API가 당일(20260819)에 0건을 반환해도, 로그인 클라이언트로 채운다."""
+    db = _db(tmp_path)
+    db.save_day("20260818", "KOSPI", [("005930", 100, 100, 0)])
+    db.save_day("20260818", "KOSDAQ", [("035720", 50, 50, 0)])
+    calls = []
+    fake_client = FakeKrxClient(_same_day_df())
+
+    res = sync(db, "KEY", today=date(2026, 8, 19), workers=2,
+               _get=_maker({}, calls), krx_client=fake_client)
+
+    assert fake_client.calls == ["20260819"]        # 시장별로 따로 부르지 않고 한 번만 호출
+    assert res["same_day_rows"] == 2
+    assert res["rows"] >= 2
+    assert "20260819" in db.loaded_dates("KOSPI")
+    assert "20260819" in db.loaded_dates("KOSDAQ")
+
+
+def test_sync_does_not_call_login_client_when_today_already_loaded(tmp_path):
+    """두 시장 모두 당일이 이미 저장돼 있으면(=오픈 API가 이미 채웠으면) 로그인 클라이언트는 호출되지 않는다."""
+    db = _db(tmp_path)
+    db.save_day("20260818", "KOSPI", [("005930", 100, 100, 0)])
+    db.save_day("20260818", "KOSDAQ", [("035720", 50, 50, 0)])
+    db.save_day("20260819", "KOSPI", [("005930", 120, 115, 15)])
+    db.save_day("20260819", "KOSDAQ", [("035720", 60, 58, 2)])
+    calls = []
+    fake_client = FakeKrxClient(_same_day_df())
+
+    res = sync(db, "KEY", today=date(2026, 8, 19), workers=2,
+               _get=_maker({}, calls), krx_client=fake_client)
+
+    assert fake_client.calls == []
+    assert res["same_day_rows"] == 0
+
+
+def test_sync_survives_login_client_error(tmp_path):
+    """로그인 클라이언트가 예외를 던져도 sync는 정상 반환한다(KrxApiError와 동일한 취급)."""
+    db = _db(tmp_path)
+    db.save_day("20260818", "KOSPI", [("005930", 100, 100, 0)])
+    db.save_day("20260818", "KOSDAQ", [("035720", 50, 50, 0)])
+    calls = []
+    fake_client = FakeKrxClient(raises=True)
+
+    res = sync(db, "KEY", today=date(2026, 8, 19), workers=2,
+               _get=_maker({}, calls), krx_client=fake_client)
+
+    assert res["same_day_rows"] == 0
+    assert "20260819" not in db.loaded_dates("KOSPI")
+
+
+def test_refetch_removes_and_readds_date(tmp_path):
+    db = _db(tmp_path)
+    db.save_day("20260819", "KOSPI", [("005930", 100, 90, -5)])
+    db.save_day("20260819", "KOSDAQ", [("035720", 50, 48, -1)])
+    calls = []
+    rows = {"20260819": [("005930", 120, 115, 15), ("035720", 60, 58, 2)]}
+
+    res = refetch(db, "KEY", "20260819", workers=2, _get=_maker(rows, calls))
+
+    assert calls.count("20260819") == 2      # KOSPI, KOSDAQ 각각 재요청
+    assert res["deleted"] == 2
+    got = dict(db.con.execute(
+        "SELECT ticker, high FROM daily_px WHERE d='20260819'"
+    ).fetchall())
+    assert got == {"005930": 120, "035720": 60}
 
 
 def test_rebuild_adjustments_persists_events(tmp_path):
