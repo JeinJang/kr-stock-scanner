@@ -65,3 +65,16 @@ def test_tickers_lists_distinct(tmp_path):
     db.save_day("20260105", "KOSPI", [("005930", 1, 1, 0), ("000660", 1, 1, 0)])
     db.save_day("20260106", "KOSPI", [("005930", 1, 1, 0)])
     assert sorted(db.tickers()) == ["000660", "005930"]
+
+
+def test_loaded_dates_query_uses_market_index(tmp_path):
+    """market 필터가 인덱스를 타는지 확인 — 700만 행에서 전체 스캔이 되면 안 된다."""
+    db = _db(tmp_path)
+    db.save_day("20260105", "KOSPI", [("005930", 1, 1, 0)])
+    plan = db.con.execute(
+        "EXPLAIN QUERY PLAN SELECT DISTINCT d FROM daily_px WHERE market = ?",
+        ("KOSPI",),
+    ).fetchall()
+    detail = " ".join(str(row[-1]) for row in plan)
+    assert "idx_px_market_d" in detail
+    assert "SCAN daily_px" not in detail

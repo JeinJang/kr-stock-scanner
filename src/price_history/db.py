@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS daily_px (
     PRIMARY KEY (d, ticker)
 );
 CREATE INDEX IF NOT EXISTS idx_px_ticker_d ON daily_px(ticker, d);
+CREATE INDEX IF NOT EXISTS idx_px_market_d ON daily_px(market, d);
 CREATE TABLE IF NOT EXISTS px_adjust (
     ticker TEXT NOT NULL,
     d      TEXT NOT NULL,
