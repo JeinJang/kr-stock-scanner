@@ -44,11 +44,24 @@ def enrich_highs(
         if recency is None:
             continue
 
-        # 저장소의 마지막 봉이 오늘 것이 아니면 종가보다 낮은 고가가 나온다.
-        # 실제 장중 고가는 같은 날 종가보다 낮을 수 없다.
+        # 마지막 봉의 날짜가 as_of와 다르면 어제 값으로 오늘 배지를 만드는 셈이다.
+        # sync 실패(cli에서 삼킨다)나 KRX 일괄 데이터 미공개면 이런 상태가 된다.
+        # 이전 판단을 뒤집는다: 그때는 이력이 종목별 거래소 조회에서 와서
+        # 거래일 정렬을 확신할 수 없어 날짜 일치를 피했다. 지금은 로컬 저장소가
+        # 달력을 정의하고 run은 오늘이 아닌 날짜를 거부한다. 비거래일에는
+        # 배지가 하나도 안 나오는데, 다른 세션 값에 오늘 딱지를 붙이느니 그편이 낫다.
+        if bars[-1].date != as_of:
+            logger.warning(
+                f"{stock.name}({stock.ticker}) 마지막 봉 날짜 {bars[-1].date} != "
+                f"기준일 {as_of} — 신선도 계산 생략"
+            )
+            continue
+
+        # 마지막 봉이 오늘 것이어도 원주가·수정 이력이 어긋나면 종가보다 낮은
+        # 고가가 나온다. 실제 장중 고가는 같은 날 종가보다 낮을 수 없다.
         if recency.today_high < stock.close_price:
             logger.warning(
-                f"{stock.name}({stock.ticker}) 최신 봉이 오늘 것이 아님 — "
+                f"{stock.name}({stock.ticker}) 저장소 고가가 종가보다 낮음 — "
                 f"마지막 봉 {bars[-1].date} 고가 {recency.today_high:,.0f} < "
                 f"종가 {stock.close_price:,.0f}, 신선도 계산 생략"
             )

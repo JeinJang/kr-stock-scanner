@@ -84,3 +84,25 @@ def test_fetch_bars_is_gone():
     """KRX 종목별 조회 경로는 삭제되었다."""
     assert not hasattr(recency_source, "fetch_bars")
     assert not hasattr(recency_source, "CHUNK_DAYS")
+
+
+def test_enrich_skips_when_last_bar_date_is_not_as_of(tmp_path):
+    """마지막 봉이 어제 것이면 가격 가드를 통과해도 건너뛴다(F2)."""
+    db = _seeded_db(tmp_path, last_high=110)   # 마지막 봉 2026-08-19
+    stock = _stock(close=100.0)                # 종가 < 마지막 봉 고가 -> 가격 가드는 통과
+    recency_source.enrich_highs([stock], date(2026, 8, 20), db=db)
+    assert stock.history_span_days is None
+    assert stock.days_since_price_above is None
+    assert stock.days_since_prev_new_high is None
+    assert stock.high_52w == 100.0
+    assert stock.prev_high_52w == 0.0
+    assert stock.breakout_pct == 0.0
+
+
+def test_enrich_fills_when_last_bar_date_matches_as_of(tmp_path):
+    """날짜가 일치하면 종전대로 채운다 — 가드가 전부를 막지는 않는다."""
+    db = _seeded_db(tmp_path, last_high=110)
+    stock = _stock(close=100.0)
+    recency_source.enrich_highs([stock], date(2026, 8, 19), db=db)
+    assert stock.history_span_days == 399
+    assert stock.high_52w == 110.0
