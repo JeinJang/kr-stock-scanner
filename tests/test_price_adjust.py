@@ -14,7 +14,7 @@ def test_no_event_when_base_matches_prev_close():
     assert detect_adjustments(rows) == []
 
 
-def test_detects_split_factor_ten():
+def test_detects_split_factor_fifty():
     # 액면분할: 정지 전 종가 2,650,000 -> 재개일 기준가 53,000
     rows = [
         _row(5, 0, 2_650_000, 0),
@@ -55,19 +55,21 @@ def test_adjusted_highs_scales_only_dates_before_event():
 
 
 def test_adjusted_highs_accumulates_multiple_events():
-    # 1/6에 계수 2, 1/8에 계수 5 -> 1/5 이전 가격은 10배
+    # 1/6에 계수 2, 1/8에 계수 5. 1/5 가격은 두 계수가 모두 걸려 1/10이 된다.
     rows = [
-        _row(5, 100, 100, 0),
-        _row(6, 60, 55, 5),      # 기준가 50, 계수 2
-        _row(8, 300, 260, 10),   # 기준가 250, 계수 55/250 = 0.22 (별도 계산)
+        _row(5, 110, 100, 0),
+        _row(6, 60, 55, 5),      # 기준가 50, 전일종가 100 -> 계수 2
+        _row(7, 65, 60, 5),      # 기준가 55 = 전일종가, 이벤트 아님
+        _row(8, 18, 15, 3),      # 기준가 12, 전일종가 60 -> 계수 5
     ]
     evs = detect_adjustments(rows)
+    assert [e.factor for e in evs] == [2.0, 5.0]
+
     out = dict(adjusted_highs(rows, evs))
-    # 마지막 봉은 언제나 무보정
-    assert out[date(2026, 1, 8)] == 300.0
-    # 이벤트가 2건이면 가장 오래된 봉은 두 계수가 모두 적용된다
-    assert len(evs) == 2
-    assert out[date(2026, 1, 5)] == 100.0 / evs[0].factor / evs[1].factor
+    assert out[date(2026, 1, 8)] == 18.0    # 마지막 봉은 무보정
+    assert out[date(2026, 1, 7)] == 13.0    # 65 x 1/5
+    assert out[date(2026, 1, 6)] == 12.0    # 60 x 1/5 (이벤트 당일은 그 계수를 안 먹는다)
+    assert out[date(2026, 1, 5)] == 11.0    # 110 x 1/5 x 1/2
 
 
 def test_adjusted_highs_without_events_is_identity():
