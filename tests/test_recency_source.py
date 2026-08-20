@@ -197,15 +197,17 @@ def test_enrich_highs_fills_metrics_and_normalizes_breakout(monkeypatch):
     from src import recency_source
 
     end = date(2026, 8, 19)
-    # 300봉: 앞 299봉은 고가 100, 오늘 110 → 직전 250봉 최고 100, 돌파율 10%
-    bars = [Bar(date=end - timedelta(days=299 - i), high=100.0) for i in range(299)]
+    # 367봉(달력 하루 간격): 앞 366봉은 고가 100, 오늘 110.
+    # 창(365일)이 어제 봉까지 완전히 덮이려면 최초 봉이 (어제 - 365일) 이전이어야
+    # 하므로 366봉의 과거 이력이 필요 → 직전 365일 최고 100, 돌파율 10%.
+    bars = [Bar(date=end - timedelta(days=366 - i), high=100.0) for i in range(366)]
     bars.append(Bar(date=end, high=110.0))
     monkeypatch.setattr(recency_source, "fetch_bars", lambda *a, **k: bars)
 
     stock = _stock()
     recency_source.enrich_highs(object(), [stock], end)
 
-    assert stock.history_span_days == 299
+    assert stock.history_span_days == 366
     assert stock.days_since_price_above is None   # 110을 웃돈 과거일 없음
     assert stock.days_since_prev_new_high == 1    # 어제 봉도 그날의 52주 신고가
     assert stock.prev_high_52w == 100.0

@@ -149,7 +149,7 @@ def enrich_highs(
     client,
     highs: list[StockHigh],
     as_of: date,
-    window: int = 250,
+    window_days: int = 365,
 ) -> None:
     """highs 각 종목의 돌파 신선도를 계산해 제자리에서 채운다.
 
@@ -171,7 +171,7 @@ def enrich_highs(
         if not bars:
             continue
 
-        recency = compute_recency(bars, window=window)
+        recency = compute_recency(bars, window_days=window_days)
         if recency is None:
             continue
 

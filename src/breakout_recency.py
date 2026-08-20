@@ -4,8 +4,9 @@
 """
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,31 @@ class Recency:
     today_high: float
 
 
-def compute_recency(bars: list[Bar], window: int = 250) -> Recency | None:
+def _prior_max_by_calendar(bars: list[Bar], window_days: int) -> list[float | None]:
+    """각 봉 시점에서 '직전 window_days 구간(당일 제외)'의 최고 고가.
+
+    창 전체를 덮는 데이터가 없으면 None. 단조 덱으로 O(n)에 구한다 —
+    후보일마다 창을 다시 훑으면 O(n^2)이 되어 11년치에서 수 초가 걸린다.
+    """
+    out: list[float | None] = [None] * len(bars)
+    if not bars:
+        return out
+    first = bars[0].date
+    dq: deque[tuple] = deque()          # (date, high), high 내림차순
+    for j, bar in enumerate(bars):
+        win_start = bar.date - timedelta(days=window_days)
+        while dq and dq[0][0] < win_start:
+            dq.popleft()
+        if first <= win_start and dq:
+            out[j] = dq[0][1]
+        # 당일은 자기 창에서 제외되므로 값을 읽은 뒤에 넣는다.
+        while dq and dq[-1][1] <= bar.high:
+            dq.pop()
+        dq.append((bar.date, bar.high))
+    return out
+
+
+def compute_recency(bars: list[Bar], window_days: int = 365) -> Recency | None:
     """bars(날짜 오름차순, 마지막이 오늘)에서 A·B를 계산한다."""
     if len(bars) < 2:
         return None
@@ -33,24 +58,25 @@ def compute_recency(bars: list[Bar], window: int = 250) -> Recency | None:
     today = bars[-1]
     past = bars[:-1]
 
-    # B: 오늘 고가 이상이었던 가장 최근 과거일. rolling window가 필요 없으므로
-    #    확보된 이력 전체를 본다.
+    # B: 오늘 고가 이상이었던 가장 최근 과거일. 창을 쓰지 않고 이력 전체를 본다.
     days_since_price_above: int | None = None
     for bar in reversed(past):
         if bar.high >= today.high:
             days_since_price_above = (today.date - bar.date).days
             break
 
+    prior_max = _prior_max_by_calendar(bars, window_days)
+
     # A: 그날 자체가 52주 신고가였던 가장 최근 과거일.
-    #    앞쪽 window개 봉은 rolling max 워밍업으로 소비된다.
     days_since_prev_new_high: int | None = None
-    for j in range(len(past) - 1, window - 1, -1):
-        prior_max = max(b.high for b in past[j - window:j])
-        if past[j].high >= prior_max:
-            days_since_prev_new_high = (today.date - past[j].date).days
+    for j in range(len(past) - 1, -1, -1):
+        pm = prior_max[j]
+        if pm is not None and bars[j].high >= pm:
+            days_since_prev_new_high = (today.date - bars[j].date).days
             break
 
-    prev_high_52w = max(b.high for b in past[-window:]) if len(past) >= window else 0.0
+    # 오늘 시점의 창 최고가가 곧 직전 52주 고점이다.
+    prev_high_52w = prior_max[-1] if prior_max[-1] is not None else 0.0
 
     return Recency(
         days_since_prev_new_high=days_since_prev_new_high,
