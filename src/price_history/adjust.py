@@ -12,7 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-THRESHOLD = 0.02
+# 11년치 6.48M행 실측: 평일 거래일은 편차가 정확히 0 — 부동소수점 잡음
+# 여유를 둘 이유가 없다. 0.5~2% 구간(253건, 56%가 12월말 무상증자·주식배당
+# 락일)은 실제 이벤트인데 구 임계값 2%로는 놓쳤다. 0.5% 미만(371+22건)은
+# 호가 반올림 잡음 — 78%가 같은 종목이 인접일에 같은 편차를 반복하는
+# 패턴으로 식별 가능. 그래서 0.5%로 낮춘다.
+THRESHOLD = 0.005
 
 
 @dataclass(frozen=True)

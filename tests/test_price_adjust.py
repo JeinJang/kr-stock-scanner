@@ -35,8 +35,22 @@ def test_detects_reverse_split_factor_below_one():
 
 
 def test_ignores_moves_below_threshold():
-    # 기준가와 전일종가가 1% 어긋나면 이벤트가 아니다
-    rows = [_row(5, 110, 1_000, 0), _row(6, 1_020, 1_010, 20)]  # 기준가 990
+    # 기준가와 전일종가가 0.3%만 어긋나면 이벤트가 아니다
+    rows = [_row(5, 110, 1_000, 0), _row(6, 1_005, 1_000, 3)]  # 기준가 997, 편차 0.301%
+    assert detect_adjustments(rows) == []
+
+
+def test_detects_stock_dividend_just_above_threshold():
+    """주식배당 수준(약 1~2%)도 검출한다 — 실측상 이 구간에 실제 이벤트가 산다."""
+    rows = [_row(5, 2_100, 2_060, 0), _row(6, 2_070, 2_040, 20)]  # 기준가 2,020, 전일종가 2,060 -> 계수 1.0198
+    evs = detect_adjustments(rows)
+    assert len(evs) == 1
+    assert round(evs[0].factor, 4) == 1.0198
+
+
+def test_ignores_rounding_noise_below_half_percent():
+    """0.5% 미만은 호가 반올림 잡음이므로 이벤트가 아니다."""
+    rows = [_row(5, 15_600, 15_525, 0), _row(6, 15_560, 15_535, 5)]  # 기준가 15,530, 편차 0.032%
     assert detect_adjustments(rows) == []
 
 
