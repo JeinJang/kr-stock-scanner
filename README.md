@@ -60,10 +60,9 @@ NAVER_CLIENT_SECRET=your_naver_client_secret
 ```bash
 # 오늘 날짜로 실행
 python -m src.cli run
-
-# 특정 날짜 지정
-python -m src.cli run --date 20260219
 ```
+
+`run`은 오늘 날짜만 지원합니다. investing.com이 당일 52주 신고가 목록만 제공하기 때문에, 다른 날짜를 지정하면 오늘 종목·가격이 그 날짜로 잘못 저장됩니다. 과거 원시 데이터가 필요하면 `collect --date`, 이미 저장된 과거 스캔을 보려면 `history --date`를 사용하세요.
 
 ### 개별 명령어
 

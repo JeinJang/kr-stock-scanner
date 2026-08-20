@@ -18,6 +18,24 @@ def _get_date_str(target_date: date | None = None) -> str:
     return d.strftime("%Y%m%d")
 
 
+def _collection_blocked_reason(scan_date: date, today: date | None = None) -> str | None:
+    """investing.com은 '오늘'의 52주 신고가 목록만 제공한다.
+
+    scan_date가 오늘이 아니면 수집을 막아야 하는 이유를 반환한다(오늘이면 None).
+    today를 주입받아 시계를 직접 읽지 않는다 — 단위 테스트를 위해서다.
+    """
+    ref = today or date.today()
+    if scan_date == ref:
+        return None
+    date_str = scan_date.strftime("%Y%m%d")
+    return (
+        f"investing.com은 오늘 하루치 52주 신고가 목록만 제공하므로, "
+        f"{date_str}로 수집하면 오늘 종목·가격이 그 날짜로 저장됩니다. "
+        f"원시 일별 데이터가 필요하면 'collect --date {date_str}'를, "
+        f"이미 저장된 과거 스캔을 보려면 'history --date {date_str}'를 사용하세요."
+    )
+
+
 def _make_client(settings: Settings):
     """Create a KrxClient from settings."""
     from src.krx_client import create_krx_client
@@ -60,6 +78,11 @@ def run(
         result = existing
         highs = result.highs
     else:
+        reason = _collection_blocked_reason(scan_date)
+        if reason:
+            console.print(f"[red]{reason}[/red]")
+            raise typer.Exit(code=1)
+
         from src.dart.cache import DartCache
         from src.collector import Collector
         from src.scanner import Scanner
