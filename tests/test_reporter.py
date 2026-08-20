@@ -329,3 +329,13 @@ def test_mismatch_stock_goes_to_its_own_group_last():
     assert f"[{GROUP_MISMATCH}]" in text
     listing = text.split("■ 전체 52주 신고가 목록")[1]
     assert listing.index("정상") < listing.index("불일치")
+
+
+def test_header_describes_actual_rule():
+    """헤더는 실제 동작(investing 목록 + 365 달력일 창)을 설명한다."""
+    from src.reporter import Reporter
+
+    text = Reporter(bot_token="", chat_id=0).format_report(_result([]), [], [])
+    assert "investing.com" in text
+    assert "365 달력일" in text
+    assert "250 거래일" not in text

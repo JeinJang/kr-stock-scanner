@@ -159,7 +159,10 @@ class Reporter:
         lines = []
 
         lines.append(f"📊 <b>52주 신고가 리포트 ({result.scan_date})</b>")
-        lines.append("<i>장중 고가 기준 (오늘 고가 ≥ 직전 250 거래일 최고 고가)</i>")
+        lines.append(
+            "<i>목록: investing.com 52주 신고가(장중 고가 기준) · "
+            "신선도: 로컬 일봉 저장소, 직전 365 달력일 창</i>"
+        )
         lines.append("")
 
         lines.append("<b>■ 시장 요약</b>")
