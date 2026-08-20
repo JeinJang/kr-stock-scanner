@@ -55,6 +55,14 @@ def test_enrich_skips_stale_last_bar(tmp_path):
     assert stock.history_span_days is None
 
 
+def test_enrich_treats_equal_high_and_close_as_fresh(tmp_path):
+    # 상한가처럼 당일 고가와 종가가 같은 경우(경계는 <, 이므로 통과해야 한다)
+    db = _seeded_db(tmp_path, last_high=110)
+    stock = _stock(close=110.0)
+    recency_source.enrich_highs([stock], date(2026, 8, 19), db=db)
+    assert stock.history_span_days == 399
+
+
 def test_enrich_isolates_per_stock_failure(tmp_path, monkeypatch):
     db = _seeded_db(tmp_path, ticker="000002")
 

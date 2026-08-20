@@ -95,3 +95,23 @@ def test_build_scan_result():
     assert result.stats.kosdaq_count == 1
     assert "전기전자" in result.sector_breakdown
     assert len(result.sector_breakdown["전기전자"]) == 1
+
+
+def test_build_scan_result_excludes_history_mismatch_from_count():
+    """이력 불일치 종목은 신고가 카운트에서 빠진다."""
+    from datetime import date
+    from src.scanner import Scanner
+    from src.models import StockHigh
+
+    def _s(ticker, b):
+        return StockHigh(
+            ticker=ticker, name=ticker, market="KOSPI", sector="기타",
+            close_price=100, high_52w=100, prev_high_52w=0.0, breakout_pct=0.0,
+            volume=1, avg_volume_20d=0, change_pct=1.0,
+            history_span_days=4000, days_since_price_above=b,
+        )
+
+    highs = [_s("000001", 2000), _s("000002", 90)]
+    result = Scanner(collector=None).build_scan_result(date(2026, 8, 19), highs, 2)
+    assert result.stats.new_high_count == 1
+    assert len(result.highs) == 2          # 목록에는 남는다

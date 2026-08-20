@@ -6,6 +6,7 @@ from loguru import logger
 from telegram import Bot
 from telegram.constants import ParseMode
 
+from src.breakout_recency import is_history_mismatch
 from src.models import ScanResult, AIAnalysisResult
 
 NAVER_STOCK_URL = "https://finance.naver.com/item/main.naver?code={ticker}"
@@ -54,7 +55,10 @@ GROUP_MID = "중기 돌파 · 1~12개월"
 GROUP_STREAK = "신고가 행진 · 1개월 내 재돌파"
 GROUP_NEW_LISTING = "신규 상장 · 이력 1년 미만"
 GROUP_UNKNOWN = "정보 없음"
-GROUP_ORDER = (GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_NEW_LISTING, GROUP_UNKNOWN)
+GROUP_MISMATCH = "⚠ 이력 불일치 · 52주 신고가 아님"
+GROUP_ORDER = (
+    GROUP_LONG, GROUP_MID, GROUP_STREAK, GROUP_NEW_LISTING, GROUP_UNKNOWN, GROUP_MISMATCH,
+)
 
 
 def _fmt_span(days: int) -> str:
@@ -103,6 +107,8 @@ def _depth_badge(stock) -> str | None:
 
 def _recency_group(stock) -> str:
     """A 기준 그룹명."""
+    if is_history_mismatch(stock.days_since_price_above):
+        return GROUP_MISMATCH
     if stock.history_span_days is None:
         return GROUP_UNKNOWN
     a = stock.days_since_prev_new_high

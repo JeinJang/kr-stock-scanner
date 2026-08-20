@@ -85,3 +85,15 @@ def compute_recency(bars: list[Bar], window_days: int = 365) -> Recency | None:
         prev_high_52w=prev_high_52w,
         today_high=today.high,
     )
+
+
+MISMATCH_MAX_DAYS = 365
+
+
+def is_history_mismatch(days_since_price_above: int | None) -> bool:
+    """우리 이력이 52주 신고가를 반박하는가.
+
+    B가 1년 미만이면 그 가격보다 높았던 날이 52주 안에 있다는 뜻이다.
+    액면병합 등을 investing이 소급 반영하지 않아 생기는 거짓 신고가를 잡는다.
+    """
+    return days_since_price_above is not None and days_since_price_above < MISMATCH_MAX_DAYS

@@ -135,8 +135,13 @@ def run(
     # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵; --force면 전체 재분석)
     if force:
         db.delete_ai_analyses(scan_date)
+    from src.breakout_recency import is_history_mismatch
+
     done_tickers = set() if force else db.get_ai_analyzed_tickers(scan_date)
-    remaining = [h for h in highs if h.ticker not in done_tickers]
+    remaining = [
+        h for h in highs
+        if h.ticker not in done_tickers and not is_history_mismatch(h.days_since_price_above)
+    ]
 
     if remaining:
         skipped = len(highs) - len(remaining)
