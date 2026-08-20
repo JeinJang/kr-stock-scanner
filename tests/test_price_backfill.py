@@ -1,12 +1,14 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from src.price_history.adjust import AdjustEvent
 from src.price_history.backfill import (
     backfill, business_days, rebuild_adjustments, refetch, sync,
 )
 from src.price_history.db import PriceDB
+from src.price_history.fetcher import KrxApiError
 
 
 def _db(tmp_path):
@@ -14,8 +16,8 @@ def _db(tmp_path):
 
 
 class FakeResp:
-    def __init__(self, payload):
-        self.status_code = 200
+    def __init__(self, payload, status_code=200):
+        self.status_code = status_code
         self._payload = payload
 
     def json(self):
@@ -230,6 +232,66 @@ def test_refetch_removes_and_readds_date(tmp_path):
         "SELECT ticker, high FROM daily_px WHERE d='20260819'"
     ).fetchall())
     assert got == {"005930": 120, "035720": 60}
+    assert res["ok"] is True
+
+
+def _existing_day(tmp_path):
+    """20260819에 두 시장 한 행씩 들어 있는 저장소."""
+    db = _db(tmp_path)
+    db.save_day("20260819", "KOSPI", [("005930", 100, 90, -5)])
+    db.save_day("20260819", "KOSDAQ", [("035720", 50, 48, -1)])
+    return db
+
+
+def _stored(db, d="20260819"):
+    return dict(db.con.execute(
+        "SELECT ticker, high FROM daily_px WHERE d=?", (d,)
+    ).fetchall())
+
+
+def test_refetch_keeps_existing_rows_when_reload_is_empty(tmp_path):
+    """두 시장 모두 0건이면 기존 행을 지우지 않는다.
+
+    지우고 나서 받는 순서였을 때는, 오픈 API가 아직 당일을 주지 않는
+    시각에 refetch를 돌리면 그 날짜의 유일한 사본이 사라졌다.
+    """
+    db = _existing_day(tmp_path)
+
+    res = refetch(db, "KEY", "20260819", workers=2, _get=_maker({}, []))
+
+    assert res["ok"] is False
+    assert res["rows"] == 0
+    assert res["deleted"] == 0
+    assert _stored(db) == {"005930": 100, "035720": 50}
+
+
+def test_refetch_keeps_existing_rows_when_fetch_fails(tmp_path):
+    """조회가 KrxApiError로 죽어도 기존 행은 그대로다(아직 아무것도 쓰지 않았다)."""
+    db = _existing_day(tmp_path)
+
+    def failing_get(url, params, headers, timeout):
+        return FakeResp({}, status_code=401)
+
+    with pytest.raises(KrxApiError):
+        refetch(db, "KEY", "20260819", workers=2, _get=failing_get)
+
+    assert _stored(db) == {"005930": 100, "035720": 50}
+
+
+def test_refetch_keeps_existing_rows_when_only_one_market_fails(tmp_path):
+    """한 시장만 죽어도 부분 저장은 없다 — 전부 받은 뒤에 한꺼번에 쓴다."""
+    db = _existing_day(tmp_path)
+    good = _maker({"20260819": [("005930", 120, 115, 15)]}, [])
+
+    def half_failing_get(url, params, headers, timeout):
+        if url.endswith("ksq_bydd_trd"):
+            return FakeResp({}, status_code=401)
+        return good(url, params, headers, timeout)
+
+    with pytest.raises(KrxApiError):
+        refetch(db, "KEY", "20260819", workers=1, _get=half_failing_get)
+
+    assert _stored(db) == {"005930": 100, "035720": 50}
 
 
 def test_rebuild_adjustments_persists_events(tmp_path):

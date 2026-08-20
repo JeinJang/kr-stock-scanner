@@ -357,7 +357,10 @@ def prices_sync():
 def prices_refetch(
     target_date: str = typer.Option(..., "--date", "-d", help="다시 받을 날짜 (YYYYMMDD)"),
 ):
-    """해당 날짜를 저장소에서 지우고 오픈 API에서 다시 적재한다(적재된 하루치가 의심스러울 때)."""
+    """해당 날짜를 오픈 API에서 다시 받아 저장된 행을 교체한다(적재된 하루치가 의심스러울 때).
+
+    먼저 받고 나중에 쓴다 — 받아온 행이 0건이면 기존 행을 그대로 두고 실패로 끝낸다.
+    """
     from src.price_history.backfill import refetch
     from src.price_history.db import PriceDB
     from src.price_history.fetcher import KrxApiError
@@ -371,6 +374,12 @@ def prices_refetch(
         res = refetch(PriceDB(), settings.krx_api_key, target_date)
     except KrxApiError as e:
         console.print(f"[red]재적재 실패: {e}[/red]")
+        raise typer.Exit(code=1)
+    if not res.get("ok", True):
+        console.print(
+            f"[red]{target_date} 재적재 취소: 오픈 API가 두 시장 모두 0건을 반환했습니다. "
+            f"기존 행은 그대로 둡니다(휴장일이거나 아직 당일 데이터 미제공).[/red]"
+        )
         raise typer.Exit(code=1)
     console.print(
         f"[green]{target_date} 재적재: {res['deleted']:,}행 삭제 후 {res['rows']:,}행 적재[/green]"

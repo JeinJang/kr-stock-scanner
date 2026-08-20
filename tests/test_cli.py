@@ -111,6 +111,30 @@ def test_cli_prices_refetch_command_has_date_option():
     assert "--date" in result.output
 
 
+def test_cli_prices_refetch_exits_nonzero_when_reload_is_empty(monkeypatch):
+    """받아온 행이 0건이면(ok=False) 성공처럼 끝내지 않고 exit 1로 알린다."""
+    from types import SimpleNamespace
+
+    import src.cli as cli
+    import src.price_history.backfill as backfill_mod
+    import src.price_history.db as db_mod
+
+    monkeypatch.setattr(
+        cli, "Settings",
+        lambda: SimpleNamespace(krx_api_key="KEY", krx_id="", krx_pw=""),
+    )
+    monkeypatch.setattr(db_mod, "PriceDB", lambda *a, **k: object())
+    monkeypatch.setattr(
+        backfill_mod, "refetch",
+        lambda *a, **k: {"requested": 2, "loaded_days": 0, "rows": 0,
+                         "skipped": 0, "deleted": 0, "ok": False},
+    )
+
+    result = runner.invoke(cli.app, ["prices", "refetch", "--date", "20260820"])
+    assert result.exit_code == 1
+    assert "재적재 취소" in result.output
+
+
 def test_sync_price_store_or_warn_swallows_krx_api_error():
     """run이 동기화 실패에도 계속 진행하도록, 헬퍼가 KrxApiError를 삼키고
     {"rows": 0, "same_day_rows": 0}을 반환한다 — 잃는 것은 돌파 신선도 배지뿐이어야 한다."""

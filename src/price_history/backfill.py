@@ -196,19 +196,47 @@ def sync(
 def refetch(
     db, api_key: str, date_str: str, workers: int = 8, _get=None,
 ) -> dict:
-    """date_str의 저장된 행을 지우고 오픈 API에서 두 시장 다시 받는다.
+    """date_str을 오픈 API에서 다시 받아 저장된 행을 교체한다.
 
-    적재된 하루치가 의심스러울 때(부분 실패, 이상치 등) 쓴다. delete_date로
-    지운 뒤에는 _load가 그 (market,date)를 '미적재'로 보고 다시 요청한다.
+    적재된 하루치가 의심스러울 때(부분 실패, 이상치 등) 쓴다. 반드시 먼저
+    받고 나중에 쓴다. 지우고 나서 받으면, 그 날짜에 오픈 API가 0건을 주거나
+    (당일은 마감 뒤에도 한동안 0건이다) 401로 죽었을 때 저장소에 구멍만
+    남는다. 게다가 지워진 과거 날짜는 sync의 oldest - SYNC_SAFETY_DAYS 창
+    밖이라 다시 요청되지도 않아, 그 구멍은 영구적이다.
+
+    두 시장 모두 0건이면 저장소를 건드리지 않고 ok=False로 알린다. 조회가
+    KrxApiError로 죽는 경우도 아직 아무것도 쓰지 않은 시점이라 저장소는
+    그대로다.
     """
+    jobs = [(m, date_str) for m in MARKET_ENDPOINTS]
+    fetched: list[tuple[str, list[tuple]]] = []
+    for market, _d, rows in fetch_many(api_key, jobs, workers, _get):
+        if rows:
+            fetched.append((market, rows))
+
+    if not fetched:
+        logger.warning(
+            f"{date_str} 재적재 취소: 오픈 API가 두 시장 모두 0건을 반환했습니다. "
+            f"저장소는 그대로 둡니다(휴장일이거나 아직 당일 데이터 미제공)."
+        )
+        return {
+            "requested": len(jobs), "loaded_days": 0, "rows": 0,
+            "skipped": 0, "deleted": 0, "ok": False,
+        }
+
+    # 데이터를 손에 쥔 뒤에 지운다. save_day가 INSERT OR REPLACE라 덮어쓰기
+    # 자체에는 삭제가 필요 없지만, 그사이 상장폐지된 티커의 잔행을 치우려면
+    # 한 번은 지워야 한다. 저장과 같은 단계에서 처리한다.
     deleted = db.delete_date(date_str)
-    res = _load(db, api_key, [date_str], workers, _get)
-    if res["rows"]:
-        d = _to_date(date_str)
-        window_start = (d - timedelta(days=40)).strftime("%Y%m%d")
-        rebuild_adjustments(db, since=window_start, replace=False)
-    res["deleted"] = deleted
-    return res
+    rows_total = sum(db.save_day(date_str, market, rows) for market, rows in fetched)
+
+    window_start = (_to_date(date_str) - timedelta(days=40)).strftime("%Y%m%d")
+    rebuild_adjustments(db, since=window_start, replace=False)
+
+    return {
+        "requested": len(jobs), "loaded_days": len(fetched), "rows": rows_total,
+        "skipped": 0, "deleted": deleted, "ok": True,
+    }
 
 
 def rebuild_adjustments(
