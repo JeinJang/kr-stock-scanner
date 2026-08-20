@@ -94,8 +94,14 @@ def test_adjusted_highs_without_events_is_identity():
 
 def test_ignores_halt_resume_auction_base_near_one():
     """장기 정지 해제일의 경매 기준가는 이벤트가 아니다 — 실측 009410 20241031."""
+    # 실측은 153일 정지. 정지 1행만으로는(HALT_MIN_ROWS 미달) 정지로 보지
+    # 않으므로, 최소 조건을 만족하도록 정지일을 2행으로 재현한다.
     # 정지 직전 종가 4,700 -> 재개일 기준가 4,781 (계수 0.983)
-    rows = [_row(5, 0, 4_700, 0), _row(6, 4_800, 4_620, -161)]
+    rows = [
+        _row(4, 0, 4_700, 0),
+        _row(5, 0, 4_700, 0),
+        _row(6, 4_800, 4_620, -161),
+    ]
     assert detect_adjustments(rows) == []
 
 
@@ -116,3 +122,25 @@ def test_halt_resume_boundary_is_ten_percent():
     # 기준가 1,000, 전일종가 1,100 -> 계수 1.1 (HALT_RESUME_MAX 밖)
     rows = [_row(5, 0, 1_100, 0), _row(6, 1_050, 1_020, 20)]
     assert [round(e.factor, 4) for e in detect_adjustments(rows)] == [1.1]
+
+
+def test_single_no_trade_day_is_not_a_halt_event_still_detected():
+    """무거래 하루(고가 0)뿐이면 정지로 보지 않는다 — 실측 001067 20230313."""
+    # 기준가 2,020, 전일종가 2,060 -> 계수 1.0198 (HALT_RESUME_MAX 이내지만
+    # 정지 1행뿐이라 HALT_MIN_ROWS 미달 -> 그대로 이벤트로 남는다).
+    rows = [_row(5, 0, 2_060, 0), _row(6, 2_070, 2_040, 20)]
+    evs = detect_adjustments(rows)
+    assert len(evs) == 1
+    assert round(evs[0].factor, 4) == 1.0198
+
+
+def test_two_no_trade_days_are_a_halt_event_not_detected():
+    """같은 계수라도 정지 2행 이상 이어지면 경매 잡음으로 버린다."""
+    # 정지 1일차, 정지 2일차(둘 다 고가 0, 종가 유지) 이후 재개.
+    # 기준가 2,020, 전일종가 2,060 -> 계수 1.0198이지만 HALT_MIN_ROWS 충족.
+    rows = [
+        _row(4, 0, 2_060, 0),
+        _row(5, 0, 2_060, 0),
+        _row(6, 2_070, 2_040, 20),
+    ]
+    assert detect_adjustments(rows) == []

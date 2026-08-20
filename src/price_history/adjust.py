@@ -30,6 +30,13 @@ THRESHOLD = 0.005
 # 정지 바로 다음 날이면 놓친다. 락일은 정상 거래일에 잡히므로 드물다.
 HALT_RESUME_MAX = 0.1
 
+# 고가 0인 행이 하루뿐이면 정지가 아니라 거래 없는 날일 수 있다 — 특히
+# 우선주 등 저유동성 종목에서 흔하다(예: 001067 20230313, 계수 1.0281,
+# 정지 1일이지만 형제 종목 001060·001065가 같은 날 같은 이벤트를 기록해
+# 진짜 이벤트임이 확인됨). 진짜 장기 정지는 여러 거래일에 걸쳐 이어지므로
+# 연속 정지일이 이 값 이상일 때만 경매 잡음으로 간주한다.
+HALT_MIN_ROWS = 2
+
 
 @dataclass(frozen=True)
 class PxRow:
@@ -49,6 +56,16 @@ class AdjustEvent:
     factor: float
 
 
+def _halt_run_length(rows: list[PxRow], i: int) -> int:
+    """rows[i-1]에서 거슬러 올라가며 이어지는 연속 정지일(고가 0) 개수."""
+    n = 0
+    j = i - 1
+    while j >= 0 and rows[j].high == 0:
+        n += 1
+        j -= 1
+    return n
+
+
 def detect_adjustments(rows: list[PxRow], threshold: float = THRESHOLD) -> list[AdjustEvent]:
     """rows(날짜 오름차순)에서 기준가 재설정 이벤트를 찾는다."""
     events: list[AdjustEvent] = []
@@ -61,7 +78,7 @@ def detect_adjustments(rows: list[PxRow], threshold: float = THRESHOLD) -> list[
         if abs(factor - 1.0) <= threshold:
             continue
         # 거래정지 해제일의 시가 경매 기준가 — 조정된 것이 없다.
-        if rows[i - 1].high == 0 and abs(factor - 1.0) < HALT_RESUME_MAX:
+        if _halt_run_length(rows, i) >= HALT_MIN_ROWS and abs(factor - 1.0) < HALT_RESUME_MAX:
             continue
         events.append(AdjustEvent(d=rows[i].d, factor=factor))
     return events
