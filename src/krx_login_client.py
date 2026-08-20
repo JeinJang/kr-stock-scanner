@@ -29,6 +29,12 @@ _BLD = {
 
 _MARKET_CODES = {"KOSPI": "STK", "KOSDAQ": "KSQ", "KONEX": "KNX"}
 
+# 전 시장 통합 조회(mktId=ALL)의 MKT_NM -> 저장소 시장 구분. 실측(20260819)
+# KOSPI 942·KOSDAQ 1,771·KOSDAQ GLOBAL 50·KONEX 109 — 942는 저장소 KOSPI
+# 개수와 정확히 일치, 1,771+50=1,821은 저장소 KOSDAQ 개수와 정확히 일치해
+# KOSDAQ GLOBAL을 KOSDAQ에 합치는 매핑이 맞음을 확인했다. KONEX·그 외는 버림.
+_MKT_NM_TO_MARKET = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSDAQ GLOBAL": "KOSDAQ"}
+
 # KRX가 IP/계정을 차단하면 JSON 대신 이 문구가 담긴 HTML 에러페이지(200)를 반환.
 _BLOCK_MARKERS = ("ip-block-page", "에러페이지 - 한국거래소")
 
@@ -261,6 +267,39 @@ class KrxLoginClient:
             df,
             [c for c in ["시가", "고가", "저가", "종가", "거래량", "거래대금", "시가총액", "상장주식수"] if c in df.columns],
             [c for c in ["등락률"] if c in df.columns],
+        )
+        return df
+
+    def get_all_market_ohlcv(self, date: str) -> pd.DataFrame:
+        """전 시장 통합 당일 시세(mktId=ALL) — 한 번의 호출로 KOSPI+KOSDAQ 전 종목.
+
+        오픈 API가 아직 당일 데이터를 주지 않을 때(장 마감 후 최대 2시간
+        16분 실측) 당일 하루치를 채우는 용도. 인덱스는 6자리 티커.
+        """
+        rows = self._post(_BLD["ohlcv_by_ticker"], {"mktId": "ALL", "trdDd": date})
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        col_map = {
+            "ISU_SRT_CD": "티커", "MKT_NM": "시장", "TDD_HGPRC": "고가",
+            "TDD_CLSPRC": "종가", "CMPPREVDD_PRC": "전일대비",
+        }
+        available = {k: v for k, v in col_map.items() if k in df.columns}
+        if "ISU_SRT_CD" not in available or "MKT_NM" not in available:
+            return pd.DataFrame()
+        df = df[list(available.keys())].rename(columns=available)
+
+        df["시장"] = df["시장"].map(_MKT_NM_TO_MARKET)
+        df = df[df["시장"].notna()]
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.set_index("티커")
+        df = self._to_numeric(
+            df,
+            [c for c in ["고가", "종가", "전일대비"] if c in df.columns],
+            [],
         )
         return df
 

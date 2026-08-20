@@ -83,6 +83,14 @@ python -m src.cli stats --days 60    # 최근 60일 통계
 # 일봉 이력 저장소 (최초 1회, 11년 기준 약 12분 / 약 742MB)
 python -m src.cli prices backfill
 
+# 마지막 적재일 이후를 채움 (평상시 KRX 호출 2건). run이 자동으로 하므로
+# 손으로 칠 일은 리포트 없이 저장소만 최신화할 때뿐. 여러 번 돌려도 안전
+python -m src.cli prices sync
+
+# 특정 하루치를 다시 받아 교체 (부분 실패·이상치로 그날이 의심스러울 때).
+# 먼저 받고 나중에 쓰므로, 0건이 오면 기존 행을 그대로 두고 실패로 끝남
+python -m src.cli prices refetch --date 20260819
+
 # 저장소 현황
 python -m src.cli prices status
 ```

@@ -65,6 +65,12 @@ class PriceDB:
         self.con.commit()
         return len(rows)
 
+    def delete_date(self, d: str) -> int:
+        """해당 날짜의 모든 행을 지운다(refetch 전 정리용). 삭제된 행 수 반환."""
+        cur = self.con.execute("DELETE FROM daily_px WHERE d = ?", (d,))
+        self.con.commit()
+        return cur.rowcount
+
     def loaded_dates(self, market: str) -> set[str]:
         cur = self.con.execute(
             "SELECT DISTINCT d FROM daily_px WHERE market = ?", (market,)

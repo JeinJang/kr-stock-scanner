@@ -47,7 +47,7 @@ def _make_client(settings: Settings):
     )
 
 
-def _sync_price_store_or_warn(sync_fn, price_db, api_key: str) -> dict:
+def _sync_price_store_or_warn(sync_fn, price_db, api_key: str, krx_client=None) -> dict:
     """일봉 저장소 동기화를 시도하고, 실패해도 예외를 삼켜 진행한다.
 
     저장소를 못 채워도 스캔·뉴스·AI·리포트는 그대로 진행해야 한다 —
@@ -57,10 +57,10 @@ def _sync_price_store_or_warn(sync_fn, price_db, api_key: str) -> dict:
     from src.price_history.fetcher import KrxApiError
 
     try:
-        return sync_fn(price_db, api_key)
+        return sync_fn(price_db, api_key, krx_client=krx_client)
     except KrxApiError as e:
         console.print(f"[yellow]일봉 동기화 실패로 돌파 신선도가 최신이 아닐 수 있습니다: {e}[/yellow]")
-        return {"rows": 0}
+        return {"rows": 0, "same_day_rows": 0}
 
 
 @app.command()
@@ -122,9 +122,13 @@ def run(
 
         console.print("[dim]1-3/5 일봉 저장소 동기화 중...[/dim]")
         price_db = PriceDB()
-        sync_res = _sync_price_store_or_warn(price_sync, price_db, settings.krx_api_key)
+        sync_res = _sync_price_store_or_warn(
+            price_sync, price_db, settings.krx_api_key, krx_client=client,
+        )
         if sync_res["rows"]:
-            console.print(f"[dim]  {sync_res['rows']:,}행 추가[/dim]")
+            same_day = sync_res.get("same_day_rows", 0)
+            suffix = f" (당일 {same_day:,}행은 로그인 클라이언트로 보완)" if same_day else ""
+            console.print(f"[dim]  {sync_res['rows']:,}행 추가{suffix}[/dim]")
 
         console.print(f"[dim]1-3/5 돌파 신선도 계산 중... ({len(highs)}종목)[/dim]")
         enrich_highs(highs, scan_date, db=price_db)
@@ -328,7 +332,7 @@ def prices_backfill(
 
 @prices_app.command("sync")
 def prices_sync():
-    """마지막 적재일 이후를 채운다(평상시 2콜)."""
+    """마지막 적재일 이후를 채운다(평상시 2콜). 당일이 비어 있으면 로그인 클라이언트로 보완한다."""
     from src.price_history.backfill import sync
     from src.price_history.db import PriceDB
     from src.price_history.fetcher import KrxApiError
@@ -338,12 +342,48 @@ def prices_sync():
         console.print("[red]KRX_API_KEY가 없습니다. .env를 확인하세요.[/red]")
         raise typer.Exit(code=1)
 
+    krx_client = _make_client(settings)
     try:
-        res = sync(PriceDB(), settings.krx_api_key)
+        res = sync(PriceDB(), settings.krx_api_key, krx_client=krx_client)
     except KrxApiError as e:
         console.print(f"[red]동기화 실패: {e}[/red]")
         raise typer.Exit(code=1)
-    console.print(f"[green]동기화: {res['rows']:,}행 추가 ({res['requested']}건 요청)[/green]")
+    same_day = res.get("same_day_rows", 0)
+    suffix = f", 당일 {same_day:,}행은 로그인 클라이언트" if same_day else ""
+    console.print(f"[green]동기화: {res['rows']:,}행 추가 ({res['requested']}건 요청{suffix})[/green]")
+
+
+@prices_app.command("refetch")
+def prices_refetch(
+    target_date: str = typer.Option(..., "--date", "-d", help="다시 받을 날짜 (YYYYMMDD)"),
+):
+    """해당 날짜를 오픈 API에서 다시 받아 저장된 행을 교체한다(적재된 하루치가 의심스러울 때).
+
+    먼저 받고 나중에 쓴다 — 받아온 행이 0건이면 기존 행을 그대로 두고 실패로 끝낸다.
+    """
+    from src.price_history.backfill import refetch
+    from src.price_history.db import PriceDB
+    from src.price_history.fetcher import KrxApiError
+
+    settings = Settings()
+    if not settings.krx_api_key:
+        console.print("[red]KRX_API_KEY가 없습니다. .env를 확인하세요.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        res = refetch(PriceDB(), settings.krx_api_key, target_date)
+    except KrxApiError as e:
+        console.print(f"[red]재적재 실패: {e}[/red]")
+        raise typer.Exit(code=1)
+    if not res.get("ok", True):
+        console.print(
+            f"[red]{target_date} 재적재 취소: 오픈 API가 두 시장 모두 0건을 반환했습니다. "
+            f"기존 행은 그대로 둡니다(휴장일이거나 아직 당일 데이터 미제공).[/red]"
+        )
+        raise typer.Exit(code=1)
+    console.print(
+        f"[green]{target_date} 재적재: {res['deleted']:,}행 삭제 후 {res['rows']:,}행 적재[/green]"
+    )
 
 
 @prices_app.command("status")

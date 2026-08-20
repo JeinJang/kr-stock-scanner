@@ -178,6 +178,10 @@ class KrxOpenApiClient:
     def get_market_sector_classifications(self, date: str, market: str) -> pd.DataFrame:
         return pd.DataFrame()
 
+    def get_all_market_ohlcv(self, date: str) -> pd.DataFrame:
+        """당일 전 시장 통합 조회는 로그인 클라이언트 전용 — 이 클라이언트는 미지원."""
+        return pd.DataFrame()
+
     def get_market_cap_by_ticker(self, date: str, market: str = "KOSPI") -> pd.DataFrame:
         df = self.get_market_ohlcv_by_ticker(date, market=market)
         if df.empty:

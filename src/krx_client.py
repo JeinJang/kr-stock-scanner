@@ -37,6 +37,8 @@ class KrxClient(Protocol):
 
     def get_etf_ticker_name(self, ticker: str, date: str = "") -> str: ...
 
+    def get_all_market_ohlcv(self, date: str) -> pd.DataFrame: ...
+
 
 def create_krx_client(*, krx_id: str = "", krx_pw: str = "", krx_api_key: str = "") -> KrxClient:
     """Create a KRX client based on available credentials.

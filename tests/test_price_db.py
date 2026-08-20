@@ -33,6 +33,21 @@ def test_save_day_is_idempotent(tmp_path):
     assert len(rows) == 1 and rows[0].high == 999.0
 
 
+def test_delete_date_removes_only_that_date(tmp_path):
+    db = _db(tmp_path)
+    db.save_day("20260105", "KOSPI", [("005930", 110, 100, 0)])
+    db.save_day("20260106", "KOSPI", [("005930", 115, 105, 5)])
+    db.save_day("20260105", "KOSDAQ", [("035720", 50, 48, 1)])
+
+    n = db.delete_date("20260105")
+
+    assert n == 2
+    remaining = db.load_rows("005930", since="20260101")
+    assert [r.d.strftime("%Y%m%d") for r in remaining] == ["20260106"]
+    assert "20260105" not in db.loaded_dates("KOSPI")
+    assert "20260106" in db.loaded_dates("KOSPI")
+
+
 def test_loaded_dates_and_last_loaded(tmp_path):
     db = _db(tmp_path)
     assert db.loaded_dates("KOSPI") == set()
