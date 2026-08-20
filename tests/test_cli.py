@@ -95,3 +95,34 @@ def test_cli_prices_backfill_has_years_option():
     result = runner.invoke(app, ["prices", "backfill", "--help"])
     assert result.exit_code == 0
     assert "--years" in result.output
+
+
+def test_prices_sync_command_has_key_guard():
+    """키가 없을 때 prices sync가 트레이스백 대신 깔끔히 종료한다."""
+    from src.cli import app
+    result = runner.invoke(app, ["prices", "sync", "--help"])
+    assert result.exit_code == 0
+
+
+def test_sync_price_store_or_warn_swallows_krx_api_error():
+    """run이 동기화 실패에도 계속 진행하도록, 헬퍼가 KrxApiError를 삼키고
+    {"rows": 0}을 반환한다 — 잃는 것은 돌파 신선도 배지뿐이어야 한다."""
+    from src.cli import _sync_price_store_or_warn
+    from src.price_history.fetcher import KrxApiError
+
+    def fake_sync_fn(price_db, api_key):
+        raise KrxApiError("401 unauthorized")
+
+    result = _sync_price_store_or_warn(fake_sync_fn, price_db=None, api_key="bad-key")
+    assert result == {"rows": 0}
+
+
+def test_sync_price_store_or_warn_passes_through_on_success():
+    """성공 시에는 sync_fn의 반환값을 그대로 돌려준다."""
+    from src.cli import _sync_price_store_or_warn
+
+    def fake_sync_fn(price_db, api_key):
+        return {"rows": 42, "requested": 2}
+
+    result = _sync_price_store_or_warn(fake_sync_fn, price_db=None, api_key="good-key")
+    assert result == {"rows": 42, "requested": 2}

@@ -47,6 +47,22 @@ def _make_client(settings: Settings):
     )
 
 
+def _sync_price_store_or_warn(sync_fn, price_db, api_key: str) -> dict:
+    """일봉 저장소 동기화를 시도하고, 실패해도 예외를 삼켜 진행한다.
+
+    저장소를 못 채워도 스캔·뉴스·AI·리포트는 그대로 진행해야 한다 —
+    잃는 것은 돌파 신선도 배지뿐이다. sync_fn을 주입받아 단위 테스트에서
+    네트워크 없이 실패 경로를 검증할 수 있게 한다.
+    """
+    from src.price_history.fetcher import KrxApiError
+
+    try:
+        return sync_fn(price_db, api_key)
+    except KrxApiError as e:
+        console.print(f"[yellow]일봉 동기화 실패로 돌파 신선도가 최신이 아닐 수 있습니다: {e}[/yellow]")
+        return {"rows": 0}
+
+
 @app.command()
 def run(
     target_date: str = typer.Option(None, "--date", "-d", help="Target date (YYYYMMDD)"),
@@ -106,7 +122,7 @@ def run(
 
         console.print("[dim]1-3/5 일봉 저장소 동기화 중...[/dim]")
         price_db = PriceDB()
-        sync_res = price_sync(price_db, settings.krx_api_key)
+        sync_res = _sync_price_store_or_warn(price_sync, price_db, settings.krx_api_key)
         if sync_res["rows"]:
             console.print(f"[dim]  {sync_res['rows']:,}행 추가[/dim]")
 
@@ -310,9 +326,18 @@ def prices_sync():
     """마지막 적재일 이후를 채운다(평상시 2콜)."""
     from src.price_history.backfill import sync
     from src.price_history.db import PriceDB
+    from src.price_history.fetcher import KrxApiError
 
     settings = Settings()
-    res = sync(PriceDB(), settings.krx_api_key)
+    if not settings.krx_api_key:
+        console.print("[red]KRX_API_KEY가 없습니다. .env를 확인하세요.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        res = sync(PriceDB(), settings.krx_api_key)
+    except KrxApiError as e:
+        console.print(f"[red]동기화 실패: {e}[/red]")
+        raise typer.Exit(code=1)
     console.print(f"[green]동기화: {res['rows']:,}행 추가 ({res['requested']}건 요청)[/green]")
 
 
