@@ -1,5 +1,6 @@
 # src/cli.py
 import asyncio
+import os
 from datetime import date, datetime
 
 import typer
@@ -46,6 +47,22 @@ def _make_client(settings: Settings):
     )
 
 
+def _sync_price_store_or_warn(sync_fn, price_db, api_key: str) -> dict:
+    """일봉 저장소 동기화를 시도하고, 실패해도 예외를 삼켜 진행한다.
+
+    저장소를 못 채워도 스캔·뉴스·AI·리포트는 그대로 진행해야 한다 —
+    잃는 것은 돌파 신선도 배지뿐이다. sync_fn을 주입받아 단위 테스트에서
+    네트워크 없이 실패 경로를 검증할 수 있게 한다.
+    """
+    from src.price_history.fetcher import KrxApiError
+
+    try:
+        return sync_fn(price_db, api_key)
+    except KrxApiError as e:
+        console.print(f"[yellow]일봉 동기화 실패로 돌파 신선도가 최신이 아닐 수 있습니다: {e}[/yellow]")
+        return {"rows": 0}
+
+
 @app.command()
 def run(
     target_date: str = typer.Option(None, "--date", "-d", help="Target date (YYYYMMDD)"),
@@ -88,7 +105,8 @@ def run(
         from src.scanner import Scanner
         from src.investing_high import collect_investing_highs, InvestingFetchError, InvestingParseError
         from src.recency_source import enrich_highs
-        from src.krx_login_client import KrxBlockedError
+        from src.price_history.backfill import sync as price_sync
+        from src.price_history.db import PriceDB
 
         client = _make_client(settings)
         collector = Collector(client=client)
@@ -102,12 +120,14 @@ def run(
             console.print(f"[red]investing 신고가 수집 실패: {e}[/red]")
             raise typer.Exit(code=1)
 
+        console.print("[dim]1-3/5 일봉 저장소 동기화 중...[/dim]")
+        price_db = PriceDB()
+        sync_res = _sync_price_store_or_warn(price_sync, price_db, settings.krx_api_key)
+        if sync_res["rows"]:
+            console.print(f"[dim]  {sync_res['rows']:,}행 추가[/dim]")
+
         console.print(f"[dim]1-3/5 돌파 신선도 계산 중... ({len(highs)}종목)[/dim]")
-        try:
-            enrich_highs(client, highs, scan_date)
-        except KrxBlockedError:
-            # 차단은 신선도 지표만 잃는다. 스캔·뉴스·AI·리포트는 그대로 진행한다.
-            console.print("[yellow]KRX 차단으로 돌파 신선도 일부/전체 누락[/yellow]")
+        enrich_highs(highs, scan_date, db=price_db)
 
         result = scanner.build_scan_result(scan_date, highs, len(highs))
         db.save_scan_result(result)
@@ -115,8 +135,13 @@ def run(
     # Step 4: 뉴스 수집 및 AI 분석 (이미 분석된 티커 스킵; --force면 전체 재분석)
     if force:
         db.delete_ai_analyses(scan_date)
+    from src.breakout_recency import is_history_mismatch
+
     done_tickers = set() if force else db.get_ai_analyzed_tickers(scan_date)
-    remaining = [h for h in highs if h.ticker not in done_tickers]
+    remaining = [
+        h for h in highs
+        if h.ticker not in done_tickers and not is_history_mismatch(h.days_since_price_above)
+    ]
 
     if remaining:
         skipped = len(highs) - len(remaining)
@@ -273,6 +298,73 @@ def test_ai():
     except Exception as e:
         console.print(f"\n[red]API 호출 실패: {type(e).__name__}[/red]")
         console.print(f"[red]{e}[/red]")
+
+
+prices_app = typer.Typer(help="일봉 이력 저장소 (data/prices.db)")
+app.add_typer(prices_app, name="prices")
+
+
+@prices_app.command("backfill")
+def prices_backfill(
+    years: int = typer.Option(11, "--years", "-y", help="적재할 과거 연수"),
+    workers: int = typer.Option(8, "--workers", "-w", help="동시 요청 수"),
+):
+    """KRX Open API로 일봉 이력을 적재한다(11년 기준 5,740 요청·약 12분). 재실행하면 이어받는다."""
+    from src.price_history.backfill import backfill
+    from src.price_history.db import PriceDB
+
+    settings = Settings()
+    if not settings.krx_api_key:
+        console.print("[red]KRX_API_KEY가 없습니다. .env를 확인하세요.[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]일봉 백필 시작 ({years}년, 동시 {workers})[/bold]")
+    res = backfill(PriceDB(), settings.krx_api_key, years=years, workers=workers)
+    console.print(
+        f"[green]완료: {res['rows']:,}행 적재, {res['skipped']}건 건너뜀, "
+        f"수정 이벤트 {res['adjust_events']}건[/green]"
+    )
+
+
+@prices_app.command("sync")
+def prices_sync():
+    """마지막 적재일 이후를 채운다(평상시 2콜)."""
+    from src.price_history.backfill import sync
+    from src.price_history.db import PriceDB
+    from src.price_history.fetcher import KrxApiError
+
+    settings = Settings()
+    if not settings.krx_api_key:
+        console.print("[red]KRX_API_KEY가 없습니다. .env를 확인하세요.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        res = sync(PriceDB(), settings.krx_api_key)
+    except KrxApiError as e:
+        console.print(f"[red]동기화 실패: {e}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]동기화: {res['rows']:,}행 추가 ({res['requested']}건 요청)[/green]")
+
+
+@prices_app.command("status")
+def prices_status():
+    """저장소 현황을 출력한다."""
+    from src.price_history.db import PriceDB
+
+    db = PriceDB()
+    last = db.last_loaded_date()
+    if last is None:
+        console.print("[yellow]저장소가 비어 있습니다. 'prices backfill'을 먼저 실행하세요.[/yellow]")
+        return
+    n_rows = db.con.execute("SELECT COUNT(*) FROM daily_px").fetchone()[0]
+    n_days = db.con.execute("SELECT COUNT(DISTINCT d) FROM daily_px").fetchone()[0]
+    n_tk = db.con.execute("SELECT COUNT(DISTINCT ticker) FROM daily_px").fetchone()[0]
+    n_ev = db.con.execute("SELECT COUNT(*) FROM px_adjust").fetchone()[0]
+    size_mb = os.path.getsize(db.path) / 1024 / 1024
+    console.print(
+        f"마지막 적재일 {last} | {n_rows:,}행 | 거래일 {n_days:,} | "
+        f"종목 {n_tk:,} | 수정 이벤트 {n_ev:,} | {size_mb:.0f}MB"
+    )
 
 
 if __name__ == "__main__":

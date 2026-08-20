@@ -10,6 +10,7 @@
 - 텔레그램 봇으로 일일 리포트 자동 전송
 - SQLite에 일별 데이터 저장 (과거 조회 가능)
 - 돌파 신선도 판별: 직전 신고가 이후 경과 기간(재돌파 간격)과 몇 년 만의 최고가인지(갱신 깊이)를 함께 표기
+- 로컬 일봉 이력 저장소(`data/prices.db`)로 수정주가 기준 돌파 신선도 산출 — 액면분할·병합 자동 보정
 
 ## 설치
 
@@ -78,7 +79,15 @@ python -m src.cli history --date 20260219    # 특정 날짜 상세
 # 통계
 python -m src.cli stats              # 최근 30일 통계
 python -m src.cli stats --days 60    # 최근 60일 통계
+
+# 일봉 이력 저장소 (최초 1회, 11년 기준 약 12분 / 약 742MB)
+python -m src.cli prices backfill
+
+# 저장소 현황
+python -m src.cli prices status
 ```
+
+돌파 신선도 지표는 `data/prices.db`의 일봉 이력을 씁니다. 최초 1회 `prices backfill`이 필요하고, 이후에는 `run`이 실행 때마다 자동으로 동기화합니다(평상시 KRX 호출 2건). 이 파일은 언제든 재생성 가능한 캐시이므로 백업 대상이 아닙니다.
 
 ### 실행 예시
 

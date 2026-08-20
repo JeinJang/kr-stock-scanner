@@ -61,9 +61,14 @@ class Scanner:
         total_stocks: int,
     ) -> ScanResult:
         """Build a ScanResult with stats and sector breakdown."""
-        kospi = [h for h in highs if h.market == "KOSPI"]
-        kosdaq = [h for h in highs if h.market == "KOSDAQ"]
-        etf = [h for h in highs if h.market == "ETF"]
+        from src.breakout_recency import is_history_mismatch
+
+        # 이력 불일치 종목(액면병합 등으로 진짜 신고가가 아닌 경우)은 목록에는
+        # 남기되 카운트에서는 뺀다 — 헤드라인 숫자가 우리 이력과 어긋나면 안 된다.
+        genuine = [h for h in highs if not is_history_mismatch(h.days_since_price_above)]
+        kospi = [h for h in genuine if h.market == "KOSPI"]
+        kosdaq = [h for h in genuine if h.market == "KOSDAQ"]
+        etf = [h for h in genuine if h.market == "ETF"]
 
         sector_breakdown: dict[str, list[StockHigh]] = defaultdict(list)
         for h in highs:
@@ -73,7 +78,7 @@ class Scanner:
             scan_date=scan_date,
             stats=MarketStats(
                 total_stocks=total_stocks,
-                new_high_count=len(highs),
+                new_high_count=len(genuine),
                 kospi_count=len(kospi),
                 kosdaq_count=len(kosdaq),
                 etf_count=len(etf),

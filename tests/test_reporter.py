@@ -309,3 +309,33 @@ def test_ai_header_renders_negative_change_pct_with_single_sign():
     header = text.split("■ 주요 종목 AI 분석")[1].split("■ 전체")[0]
     assert "-1.2%" in header
     assert "+-" not in text
+
+
+def test_is_history_mismatch():
+    from src.breakout_recency import is_history_mismatch
+    assert is_history_mismatch(90) is True
+    assert is_history_mismatch(364) is True
+    assert is_history_mismatch(365) is False
+    assert is_history_mismatch(None) is False
+
+
+def test_mismatch_stock_goes_to_its_own_group_last():
+    from src.reporter import Reporter, GROUP_MISMATCH
+
+    highs = [_rstock("000001", "정상", a=1000, span=4000, b=2000),
+             _rstock("000002", "불일치", a=10, span=4000, b=90)]
+    text = Reporter(bot_token="", chat_id=0).format_report(_result(highs), [], [])
+
+    assert f"[{GROUP_MISMATCH}]" in text
+    listing = text.split("■ 전체 52주 신고가 목록")[1]
+    assert listing.index("정상") < listing.index("불일치")
+
+
+def test_header_describes_actual_rule():
+    """헤더는 실제 동작(investing 목록 + 365 달력일 창)을 설명한다."""
+    from src.reporter import Reporter
+
+    text = Reporter(bot_token="", chat_id=0).format_report(_result([]), [], [])
+    assert "investing.com" in text
+    assert "365 달력일" in text
+    assert "250 거래일" not in text
