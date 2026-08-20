@@ -66,3 +66,43 @@ async def test_analyze_stocks_respects_max_limit():
         )
 
     assert len(results) == 3
+
+
+def _astock(a=None, b=None, span=None):
+    from src.models import StockHigh
+
+    return StockHigh(
+        ticker="005930", name="삼성전자", market="KOSPI", sector="전기전자",
+        close_price=78500, high_52w=79000, prev_high_52w=77000,
+        breakout_pct=2.6, volume=1000, avg_volume_20d=0, change_pct=3.1,
+        days_since_prev_new_high=a, days_since_price_above=b, history_span_days=span,
+    )
+
+
+def test_recency_prompt_line_is_empty_without_history():
+    from src.ai_analyst import _recency_prompt_line
+
+    assert _recency_prompt_line(_astock()) == ""
+
+
+def test_recency_prompt_line_describes_both_axes():
+    from src.ai_analyst import _recency_prompt_line
+
+    line = _recency_prompt_line(_astock(a=1170, b=1500, span=4000))
+    assert "돌파 신선도:" in line
+    assert "1170일 전" in line
+    assert "1500일 전" in line
+
+
+def test_recency_prompt_line_marks_all_time_high():
+    from src.ai_analyst import _recency_prompt_line
+
+    line = _recency_prompt_line(_astock(a=1170, b=None, span=4000))
+    assert "최고 수준" in line
+
+
+def test_recency_prompt_line_marks_first_breakout():
+    from src.ai_analyst import _recency_prompt_line
+
+    line = _recency_prompt_line(_astock(a=None, b=None, span=4000))
+    assert "첫 돌파" in line

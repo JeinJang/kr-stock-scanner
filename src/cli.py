@@ -64,6 +64,8 @@ def run(
         from src.collector import Collector
         from src.scanner import Scanner
         from src.investing_high import collect_investing_highs, InvestingFetchError, InvestingParseError
+        from src.recency_source import enrich_highs
+        from src.krx_login_client import KrxBlockedError
 
         client = _make_client(settings)
         collector = Collector(client=client)
@@ -76,6 +78,13 @@ def run(
         except (InvestingFetchError, InvestingParseError) as e:
             console.print(f"[red]investing 신고가 수집 실패: {e}[/red]")
             raise typer.Exit(code=1)
+
+        console.print(f"[dim]1-3/5 돌파 신선도 계산 중... ({len(highs)}종목)[/dim]")
+        try:
+            enrich_highs(client, highs, scan_date)
+        except KrxBlockedError:
+            # 차단은 신선도 지표만 잃는다. 스캔·뉴스·AI·리포트는 그대로 진행한다.
+            console.print("[yellow]KRX 차단으로 돌파 신선도 일부/전체 누락[/yellow]")
 
         result = scanner.build_scan_result(scan_date, highs, len(highs))
         db.save_scan_result(result)

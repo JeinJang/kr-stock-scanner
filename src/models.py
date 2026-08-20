@@ -16,6 +16,11 @@ class StockHigh(BaseModel):
     breakout_pct: float
     volume: int
     avg_volume_20d: int
+    # -- 돌파 신선도 (이력 확보 실패 시 None) --
+    days_since_prev_new_high: int | None = None   # A: 직전 신고가 이후 경과 일수
+    days_since_price_above: int | None = None     # B: 오늘 고가를 마지막으로 웃돈 날 이후 경과 일수
+    history_span_days: int | None = None          # 확보된 이력 길이
+    change_pct: float = 0.0                       # 당일 등락률 (breakout_pct와 별개)
 
 
 class MarketStats(BaseModel):

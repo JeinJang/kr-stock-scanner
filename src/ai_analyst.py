@@ -30,6 +30,24 @@ def _sanitize(text: str) -> str:
     return text
 
 
+def _recency_prompt_line(stock: StockHigh) -> str:
+    """돌파 신선도를 프롬프트 한 줄로. 지표가 없으면 빈 문자열."""
+    if stock.history_span_days is None:
+        return ""
+
+    if stock.days_since_prev_new_high is None:
+        first = "조회 구간 내 직전 신고가 없음(첫 돌파)"
+    else:
+        first = f"직전 신고가 {stock.days_since_prev_new_high}일 전"
+
+    if stock.days_since_price_above is None:
+        second = "현재가는 확보된 이력 전체에서 최고 수준"
+    else:
+        second = f"현재가를 마지막으로 웃돈 시점은 {stock.days_since_price_above}일 전"
+
+    return f"돌파 신선도: {first} / {second}\n"
+
+
 class AIAnalyst:
     """Analyzes stock rise reasons using OpenAI GPT."""
 
@@ -45,14 +63,19 @@ class AIAnalyst:
             f"- {_sanitize(a.title)}: {_sanitize(a.description)}" for a in news
         ) if news else "관련 뉴스 없음"
 
+        breakout_note = (
+            f" (직전 52주 고점 대비 +{stock.breakout_pct:.1f}%)"
+            if stock.breakout_pct > 0 else ""
+        )
+
         prompt = f"""다음 종목이 52주 신고가를 기록했습니다. 관련 뉴스를 바탕으로 아래 형식에 맞춰 분석해주세요.
 
 종목: {stock.name} ({stock.ticker})
 시장: {stock.market} / 섹터: {stock.sector}
-종가: {stock.close_price:,.0f}원
-52주 신고가: {stock.high_52w:,.0f}원 (전고점 대비 +{stock.breakout_pct:.1f}%)
+종가: {stock.close_price:,.0f}원 (당일 {stock.change_pct:+.1f}%)
+52주 신고가: {stock.high_52w:,.0f}원{breakout_note}
 거래량: {stock.volume:,}주
-
+{_recency_prompt_line(stock)}
 최근 뉴스:
 {news_text}
 
