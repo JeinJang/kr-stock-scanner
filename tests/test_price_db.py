@@ -60,6 +60,28 @@ def test_events_roundtrip_replaces_previous(tmp_path):
     assert evs[0].d == date(2026, 1, 7) and evs[0].factor == 2.0
 
 
+def test_add_events_merges_without_deleting(tmp_path):
+    """add_events는 save_events와 달리 기존 이벤트를 지우지 않고 병합한다."""
+    db = _db(tmp_path)
+    db.save_events("005930", [AdjustEvent(d=date(2026, 1, 6), factor=50.0)])
+    db.add_events("005930", [AdjustEvent(d=date(2026, 3, 2), factor=2.0)])
+    evs = db.load_events("005930")
+    assert {(e.d, e.factor) for e in evs} == {
+        (date(2026, 1, 6), 50.0),
+        (date(2026, 3, 2), 2.0),
+    }
+
+
+def test_last_loaded_date_filters_by_market(tmp_path):
+    db = _db(tmp_path)
+    db.save_day("20260105", "KOSPI", [("005930", 110, 100, 0)])
+    db.save_day("20260106", "KOSDAQ", [("035720", 50, 48, 1)])
+    assert db.last_loaded_date("KOSPI") == "20260105"
+    assert db.last_loaded_date("KOSDAQ") == "20260106"
+    assert db.last_loaded_date() == "20260106"          # market 미지정은 통합 최신일
+    assert db.last_loaded_date("ETF") is None
+
+
 def test_tickers_lists_distinct(tmp_path):
     db = _db(tmp_path)
     db.save_day("20260105", "KOSPI", [("005930", 1, 1, 0), ("000660", 1, 1, 0)])

@@ -71,8 +71,14 @@ class PriceDB:
         )
         return {r[0] for r in cur}
 
-    def last_loaded_date(self) -> str | None:
-        r = self.con.execute("SELECT MAX(d) FROM daily_px").fetchone()
+    def last_loaded_date(self, market: str | None = None) -> str | None:
+        """market을 주면 그 시장만의 최신 적재일, 없으면 전체 시장 통합 최신일."""
+        if market is None:
+            r = self.con.execute("SELECT MAX(d) FROM daily_px").fetchone()
+        else:
+            r = self.con.execute(
+                "SELECT MAX(d) FROM daily_px WHERE market = ?", (market,)
+            ).fetchone()
         return r[0] if r and r[0] else None
 
     # -- 메타 ---------------------------------------------------------------
@@ -110,6 +116,18 @@ class PriceDB:
         self.con.execute("DELETE FROM px_adjust WHERE ticker = ?", (ticker,))
         self.con.executemany(
             "INSERT INTO px_adjust (ticker,d,factor) VALUES (?,?,?)",
+            [(ticker, e.d.strftime("%Y%m%d"), e.factor) for e in events],
+        )
+        self.con.commit()
+
+    def add_events(self, ticker: str, events: list[AdjustEvent]) -> None:
+        """기존 이벤트를 지우지 않고 병합한다(같은 (ticker,d)는 재계산 결과로 대체).
+
+        일일 증분처럼 좁은 기간만 재계산할 때 쓴다 — save_events처럼 지우면
+        범위 밖의 과거 이벤트까지 사라진다.
+        """
+        self.con.executemany(
+            "INSERT OR REPLACE INTO px_adjust (ticker,d,factor) VALUES (?,?,?)",
             [(ticker, e.d.strftime("%Y%m%d"), e.factor) for e in events],
         )
         self.con.commit()
