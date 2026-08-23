@@ -4,6 +4,7 @@ import os
 from datetime import date, datetime
 
 import typer
+from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
@@ -45,6 +46,27 @@ def _make_client(settings: Settings):
         krx_pw=getattr(settings, "krx_pw", ""),
         krx_api_key=settings.krx_api_key,
     )
+
+
+def _run_aihw_step(config, settings) -> None:
+    """run 파이프라인 마지막 단계: aihw 지표 생성·전송. 실패해도 run을 막지 않는다."""
+    if not config.aihw.auto_send:
+        return
+    try:
+        from src.aihw import pipeline as aihw_pipeline
+
+        console.print("[dim]aihw 지표 생성 중...[/dim]")
+        result = aihw_pipeline.run_aihw(config.aihw)
+        if settings.telegram_bot_token:
+            from src.reporter import Reporter
+
+            chat_id = settings.aihw_telegram_chat_id or settings.telegram_chat_id
+            reporter = Reporter(settings.telegram_bot_token, chat_id)
+            asyncio.run(reporter.send_photo(result.png_path, result.caption))
+            console.print("[green]aihw 지표 전송 완료[/green]")
+    except Exception as e:  # noqa: BLE001 — aihw 실패가 run 전체를 막으면 안 됨
+        logger.warning(f"aihw 단계 실패 (run은 계속): {e}")
+        console.print(f"[yellow]aihw 지표 실패: {e}[/yellow]")
 
 
 def _sync_price_store_or_warn(sync_fn, price_db, api_key: str, krx_client=None) -> dict:
@@ -186,6 +208,8 @@ def run(
         reporter = Reporter(bot_token="", chat_id=0)
         text = reporter.format_report(result, all_ai, trend)
         console.print(text)
+
+    _run_aihw_step(config, settings)
 
     console.print(f"[bold green]완료! {result.stats.new_high_count}개 신고가 종목 발견[/bold green]")
 

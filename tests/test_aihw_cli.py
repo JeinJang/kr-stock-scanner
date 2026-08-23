@@ -5,7 +5,8 @@ from typer.testing import CliRunner
 
 from src.aihw.models import AihwSummary, CompanySummary, GroupSummary
 from src.aihw.pipeline import AihwResult
-from src.cli import app
+from src.cli import _run_aihw_step, app
+from src.config import ScannerConfig, Settings
 
 runner = CliRunner()
 
@@ -67,3 +68,30 @@ class TestAihwCommand:
         passed_config = mock_run.call_args.args[0]
         from datetime import timedelta
         assert passed_config.base_date == (date.today() - timedelta(days=30)).isoformat()
+
+
+class TestRunAihwStep:
+    @patch("src.cli.asyncio.run")
+    @patch("src.aihw.pipeline.run_aihw")
+    def test_sends_when_auto_send_enabled(self, mock_run, mock_asyncio):
+        mock_run.return_value = _result()
+        config = ScannerConfig()
+        config.aihw.auto_send = True
+        settings = Settings(telegram_bot_token="token", telegram_chat_id=123)
+        _run_aihw_step(config, settings)
+        mock_run.assert_called_once()
+        mock_asyncio.assert_called_once()
+
+    @patch("src.aihw.pipeline.run_aihw")
+    def test_skips_when_disabled(self, mock_run):
+        config = ScannerConfig()
+        config.aihw.auto_send = False
+        _run_aihw_step(config, Settings())
+        mock_run.assert_not_called()
+
+    @patch("src.aihw.pipeline.run_aihw", side_effect=RuntimeError("yfinance down"))
+    def test_failure_does_not_raise(self, mock_run):
+        config = ScannerConfig()
+        config.aihw.auto_send = True
+        settings = Settings(telegram_bot_token="token", telegram_chat_id=123)
+        _run_aihw_step(config, settings)  # 예외가 전파되면 테스트 실패
