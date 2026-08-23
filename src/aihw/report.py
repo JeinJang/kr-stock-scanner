@@ -15,6 +15,11 @@ from src.aihw.models import AihwSeries, AihwSummary
 
 CAPTION_LIMIT = 1024
 GROUP_COLORS = {"AI HW": "#f5a623", "빅테크": "#7b61c4", "SPY": "#4a90d9", "RSP": "#3d9970"}
+# 절대 시총 차트에서 개별 기업 선 색상 — 그룹별 색 계열 (순환 사용)
+COMPANY_PALETTES = {
+    "AI HW": ["#e8590c", "#f08c00", "#e67700", "#d9480f", "#c92a2a", "#a61e4d"],
+    "빅테크": ["#5f3dc4", "#7048e8", "#9775fa", "#4263eb", "#3b5bdb", "#364fc7"],
+}
 
 
 def _fmt_t(cap_usd: float) -> str:
@@ -87,16 +92,56 @@ def build_figures(series: AihwSeries, threshold: float) -> tuple[go.Figure, go.F
     return ratio_fig, index_fig
 
 
-def generate_html(series: AihwSeries, summary: AihwSummary, output_dir: str) -> str:
+def build_cap_figure(series: AihwSeries, names: dict[str, str] | None = None) -> go.Figure:
+    """절대 시가총액($T) 차트: 그룹 합계(굵은 선) + 개별 기업(얇은 선)."""
+    names = names or {}
+    fig = go.Figure()
+    for label, totals in (
+        ("AI HW 합계", series.ai_hw_total),
+        ("빅테크 합계", series.big_tech_total),
+    ):
+        group = label.replace(" 합계", "")
+        fig.add_trace(go.Scatter(
+            x=series.dates, y=[v / 1e12 for v in totals],
+            mode="lines", name=label,
+            line=dict(color=GROUP_COLORS[group], width=3),
+        ))
+    for group, companies in series.company_caps.items():
+        palette = COMPANY_PALETTES.get(group, [])
+        for i, (ticker, caps) in enumerate(companies.items()):
+            fig.add_trace(go.Scatter(
+                x=series.dates, y=[v / 1e12 for v in caps],
+                mode="lines", name=names.get(ticker, ticker),
+                line=dict(
+                    color=palette[i % len(palette)] if palette else None,
+                    width=1.2,
+                ),
+            ))
+    fig.update_layout(
+        title="시가총액 추이 (조 달러)",
+        yaxis_title="$T", template="plotly_white", height=480,
+        legend=dict(orientation="h", yanchor="top", y=-0.15),
+    )
+    return fig
+
+
+def generate_html(
+    series: AihwSeries,
+    summary: AihwSummary,
+    output_dir: str,
+    names: dict[str, str] | None = None,
+) -> str:
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.html")
     ratio_fig, index_fig = build_figures(series, summary.threshold)
+    cap_fig = build_cap_figure(series, names)
 
     env = Environment(loader=FileSystemLoader(str(Path(__file__).parent / "templates")))
     html = env.get_template("report.html").render(
         summary=summary,
         ratio_pct=f"{summary.ratio * 100:.1f}%",
         ratio_div=ratio_fig.to_html(full_html=False, include_plotlyjs="cdn"),
+        cap_div=cap_fig.to_html(full_html=False, include_plotlyjs=False),
         index_div=index_fig.to_html(full_html=False, include_plotlyjs=False),
         fmt_t=_fmt_t,
         fmt_pct=_fmt_pct,
@@ -107,27 +152,36 @@ def generate_html(series: AihwSeries, summary: AihwSummary, output_dir: str) -> 
     return path
 
 
-def generate_png(series: AihwSeries, summary: AihwSummary, output_dir: str) -> str:
+def generate_png(
+    series: AihwSeries,
+    summary: AihwSummary,
+    output_dir: str,
+    names: dict[str, str] | None = None,
+) -> str:
     from plotly.subplots import make_subplots
 
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.png")
     ratio_fig, index_fig = build_figures(series, summary.threshold)
+    cap_fig = build_cap_figure(series, names)
 
     combined = make_subplots(
-        rows=2, cols=1, shared_xaxes=False, vertical_spacing=0.12,
+        rows=3, cols=1, shared_xaxes=False, vertical_spacing=0.08,
         subplot_titles=(
             "AI HW / 빅테크 시총 비율 (%)",
+            "시가총액 추이 (조 달러)",
             f"시총 지수 비교 ({series.dates[0].isoformat()} = 100)",
         ),
     )
     for trace in ratio_fig.data:
         combined.add_trace(trace, row=1, col=1)
     combined.add_hline(y=summary.threshold * 100, line_color="red", line_width=2, row=1, col=1)
-    for trace in index_fig.data:
+    for trace in cap_fig.data:
         combined.add_trace(trace, row=2, col=1)
+    for trace in index_fig.data:
+        combined.add_trace(trace, row=3, col=1)
     combined.update_layout(
-        template="plotly_white", height=900, width=1000,
+        template="plotly_white", height=1350, width=1000,
         title=f"AI HW / 빅테크 고점 지표 — {summary.as_of.isoformat()}",
     )
     combined.write_image(path, scale=2)

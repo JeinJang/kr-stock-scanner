@@ -28,6 +28,7 @@ class AihwSeries(BaseModel):
     big_tech_total: list[float]
     ratio: list[float]
     indexed: dict[str, list[float]]  # "AI HW", "빅테크", 벤치마크 티커
+    company_caps: dict[str, dict[str, list[float]]] = {}  # 그룹명 → 티커 → 시총(USD)
 
 
 class CompanySummary(BaseModel):

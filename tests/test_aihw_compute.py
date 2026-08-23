@@ -67,6 +67,16 @@ class TestBuildSeries:
         s = build_series(caps, AI_HW, BIG_TECH, [], base_date=D1)
         assert s.dates == [D1, D2]
 
+    def test_company_caps_grouped_by_group_name(self):
+        s = build_series(_sample_caps(), AI_HW, BIG_TECH, ["SPY"], base_date=D1)
+        assert s.company_caps["AI HW"]["NVDA"] == [200.0, 300.0]
+        assert s.company_caps["AI HW"]["MU"] == [100.0, 140.0]
+        assert s.company_caps["빅테크"]["MSFT"] == [300.0, 330.0]
+        assert s.company_caps["빅테크"]["META"] == [200.0, 220.0]
+        # 벤치마크는 포함되지 않는다
+        assert "SPY" not in s.company_caps["AI HW"]
+        assert "SPY" not in s.company_caps["빅테크"]
+
     def test_missing_benchmark_does_not_drop_date(self):
         caps = _sample_caps()
         # D2의 RSP 제거 → 날짜는 유지, RSP 지수만 해당일 생략 없이 이전값 유지 안 함

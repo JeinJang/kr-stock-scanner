@@ -54,12 +54,18 @@ def build_series(
         if len(closes) == len(dates):
             indexed[bench] = _index_100(closes, base_idx)
 
+    company_caps = {
+        "AI HW": {t: [by_date[d][t].market_cap_usd for d in dates] for t in ai_hw},
+        "빅테크": {t: [by_date[d][t].market_cap_usd for d in dates] for t in big_tech},
+    }
+
     return AihwSeries(
         dates=dates,
         ai_hw_total=ai_hw_total,
         big_tech_total=big_tech_total,
         ratio=ratio,
         indexed=indexed,
+        company_caps=company_caps,
     )
 
 

@@ -50,10 +50,11 @@ def run_aihw(
     summary = summarize(
         series, caps, config.ai_hw_tickers, config.big_tech_tickers, config.threshold,
     )
+    names = {**config.ai_hw_tickers, **config.big_tech_tickers}
     result = AihwResult(
         summary=summary,
-        html_path=generate_html(series, summary, config.report_dir),
-        png_path=generate_png(series, summary, config.report_dir),
+        html_path=generate_html(series, summary, config.report_dir, names=names),
+        png_path=generate_png(series, summary, config.report_dir, names=names),
         caption=build_caption(summary),
     )
     logger.info(

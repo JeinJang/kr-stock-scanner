@@ -2,7 +2,7 @@ from datetime import date
 
 
 from src.aihw.models import AihwSeries, AihwSummary, CompanySummary, GroupSummary
-from src.aihw.report import build_caption, build_figures, generate_html
+from src.aihw.report import build_cap_figure, build_caption, build_figures, generate_html
 
 
 def _summary(ratio=0.762, status=None):
@@ -95,6 +95,16 @@ def _series():
             "SPY": [100.0, 101.0],
             "RSP": [100.0, 100.4],
         },
+        company_caps={
+            "AI HW": {
+                "NVDA": [4.0e12, 4.5e12],
+                "AVGO": [2.0e12, 2.3e12],
+            },
+            "빅테크": {
+                "MSFT": [5.0e12, 5.1e12],
+                "META": [3.8e12, 3.8e12],
+            },
+        },
     )
 
 
@@ -111,6 +121,30 @@ class TestBuildFigures:
         assert names == {"AI HW", "빅테크", "SPY", "RSP"}
 
 
+class TestBuildCapFigure:
+    def test_has_group_totals_and_company_traces(self):
+        fig = build_cap_figure(_series(), names={"NVDA": "엔비디아", "MSFT": "MS"})
+        trace_names = [t.name for t in fig.data]
+        # 그룹 합계 2개 + 개별 기업 4개
+        assert len(fig.data) == 6
+        assert "AI HW 합계" in trace_names
+        assert "빅테크 합계" in trace_names
+        assert "엔비디아" in trace_names  # names 매핑 적용
+        assert "AVGO" in trace_names  # 매핑 없으면 티커 그대로
+
+    def test_y_values_are_in_trillions(self):
+        fig = build_cap_figure(_series())
+        totals = {t.name: list(t.y) for t in fig.data}
+        assert totals["AI HW 합계"] == [6.0, 6.8]  # $T 단위
+        assert totals["NVDA"] == [4.0, 4.5]
+
+    def test_empty_company_caps_yields_group_totals_only(self):
+        s = _series()
+        s.company_caps = {}
+        fig = build_cap_figure(s)
+        assert len(fig.data) == 2
+
+
 class TestGenerateHtml:
     def test_writes_file_with_table(self, tmp_path):
         path = generate_html(_series(), _summary(), output_dir=str(tmp_path))
@@ -118,3 +152,11 @@ class TestGenerateHtml:
         html = open(path, encoding="utf-8").read()
         assert "엔비디아" in html
         assert "76.2%" in html
+
+    def test_contains_cap_chart(self, tmp_path):
+        path = generate_html(
+            _series(), _summary(), output_dir=str(tmp_path),
+            names={"NVDA": "엔비디아"},
+        )
+        html = open(path, encoding="utf-8").read()
+        assert "시가총액 추이" in html
