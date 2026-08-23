@@ -6,7 +6,13 @@ from __future__ import annotations
 
 from datetime import date
 
-from src.aihw.models import AihwSeries, DailyCap
+from src.aihw.models import (
+    AihwSeries,
+    AihwSummary,
+    CompanySummary,
+    DailyCap,
+    GroupSummary,
+)
 
 
 def _index_100(values: list[float], base_idx: int) -> list[float]:
@@ -54,4 +60,78 @@ def build_series(
         big_tech_total=big_tech_total,
         ratio=ratio,
         indexed=indexed,
+    )
+
+
+def threshold_status(
+    ratio_today: float, ratio_prev: float | None, threshold: float
+) -> str | None:
+    """임계값 기준 상태 판정: cross_up, cross_down, above, None."""
+    above = ratio_today >= threshold
+    if ratio_prev is None:
+        return "above" if above else None
+    prev_above = ratio_prev >= threshold
+    if above and not prev_above:
+        return "cross_up"
+    if not above and prev_above:
+        return "cross_down"
+    return "above" if above else None
+
+
+def _group_summary(
+    name: str,
+    tickers: dict[str, str],
+    today: dict[str, DailyCap],
+    prev: dict[str, DailyCap] | None,
+) -> GroupSummary:
+    """그룹별 요약 정보 생성 (시총 내림차순으로 정렬)."""
+    companies = []
+    for ticker, display_name in tickers.items():
+        cap = today[ticker].market_cap_usd
+        change = None
+        if prev and ticker in prev and prev[ticker].market_cap_usd:
+            change = (cap / prev[ticker].market_cap_usd - 1.0) * 100.0
+        companies.append(CompanySummary(
+            ticker=ticker, name=display_name, cap_usd=cap, day_change_pct=change,
+        ))
+    companies.sort(key=lambda c: c.cap_usd, reverse=True)
+    return GroupSummary(
+        name=name, total_usd=sum(c.cap_usd for c in companies), companies=companies,
+    )
+
+
+def summarize(
+    series: AihwSeries,
+    caps: list[DailyCap],
+    ai_hw: dict[str, str],
+    big_tech: dict[str, str],
+    threshold: float,
+) -> AihwSummary:
+    """AI HW 비율 지표의 전체 요약 정보 생성."""
+    as_of = series.dates[-1]
+    prev_date = series.dates[-2] if len(series.dates) >= 2 else None
+
+    by_date: dict[date, dict[str, DailyCap]] = {}
+    for c in caps:
+        by_date.setdefault(c.date, {})[c.ticker] = c
+    today_row = by_date[as_of]
+    prev_row = by_date.get(prev_date) if prev_date else None
+
+    ratio = series.ratio[-1]
+    ratio_prev = series.ratio[-2] if len(series.ratio) >= 2 else None
+    last_30 = series.ratio[-30:]
+
+    return AihwSummary(
+        as_of=as_of,
+        ratio=ratio,
+        ratio_prev=ratio_prev,
+        change_pp=(ratio - ratio_prev) * 100.0 if ratio_prev is not None else None,
+        high_30d=max(last_30),
+        low_30d=min(last_30),
+        threshold=threshold,
+        status=threshold_status(ratio, ratio_prev, threshold),
+        groups=[
+            _group_summary("AI HW", ai_hw, today_row, prev_row),
+            _group_summary("빅테크", big_tech, today_row, prev_row),
+        ],
     )

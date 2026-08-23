@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from src.aihw.compute import build_series
-from src.aihw.models import DailyCap
+from src.aihw.compute import build_series, summarize, threshold_status
+from src.aihw.models import AihwSummary, DailyCap
 
 
 def _cap(d, ticker, cap_usd, close=100.0):
@@ -75,3 +75,62 @@ class TestBuildSeries:
         assert s.dates == [D1, D2]
         assert len(s.indexed["SPY"]) == 2
         assert "RSP" not in s.indexed
+
+
+class TestThresholdStatus:
+    def test_cross_up(self):
+        assert threshold_status(0.81, 0.79, 0.8) == "cross_up"
+
+    def test_cross_down(self):
+        assert threshold_status(0.79, 0.81, 0.8) == "cross_down"
+
+    def test_above_no_cross(self):
+        assert threshold_status(0.82, 0.81, 0.8) == "above"
+
+    def test_below(self):
+        assert threshold_status(0.75, 0.76, 0.8) is None
+
+    def test_no_prev_above(self):
+        assert threshold_status(0.85, None, 0.8) == "above"
+
+    def test_no_prev_below(self):
+        assert threshold_status(0.7, None, 0.8) is None
+
+
+class TestSummarize:
+    def test_summary_fields(self):
+        caps = _sample_caps()
+        series = build_series(caps, AI_HW, BIG_TECH, ["SPY", "RSP"], base_date=D1)
+        summary = summarize(
+            series, caps,
+            ai_hw={"NVDA": "엔비디아", "MU": "마이크론"},
+            big_tech={"MSFT": "MS", "META": "메타"},
+            threshold=0.8,
+        )
+        assert summary.as_of == D2
+        assert summary.ratio == pytest.approx(0.8)
+        assert summary.ratio_prev == pytest.approx(0.6)
+        assert summary.change_pp == pytest.approx(20.0)  # %p
+        assert summary.high_30d == pytest.approx(0.8)
+        assert summary.low_30d == pytest.approx(0.6)
+        assert summary.status == "cross_up"
+
+    def test_groups_sorted_by_cap_desc(self):
+        caps = _sample_caps()
+        series = build_series(caps, AI_HW, BIG_TECH, ["SPY"], base_date=D1)
+        summary = summarize(
+            series, caps,
+            ai_hw={"NVDA": "엔비디아", "MU": "마이크론"},
+            big_tech={"MSFT": "MS", "META": "메타"},
+            threshold=0.8,
+        )
+        ai_group = summary.groups[0]
+        assert ai_group.name == "AI HW"
+        assert ai_group.total_usd == pytest.approx(440.0)
+        assert [c.ticker for c in ai_group.companies] == ["NVDA", "MU"]
+        # NVDA: D1 200 → D2 300 = +50%
+        assert ai_group.companies[0].day_change_pct == pytest.approx(50.0)
+        assert ai_group.companies[0].name == "엔비디아"
+        big_group = summary.groups[1]
+        assert big_group.name == "빅테크"
+        assert [c.ticker for c in big_group.companies] == ["MSFT", "META"]

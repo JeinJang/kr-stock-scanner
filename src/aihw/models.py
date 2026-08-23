@@ -28,3 +28,34 @@ class AihwSeries(BaseModel):
     big_tech_total: list[float]
     ratio: list[float]
     indexed: dict[str, list[float]]  # "AI HW", "빅테크", 벤치마크 티커
+
+
+class CompanySummary(BaseModel):
+    """개별 종목의 요약 정보."""
+
+    ticker: str
+    name: str
+    cap_usd: float
+    day_change_pct: float | None = None
+
+
+class GroupSummary(BaseModel):
+    """그룹(AI HW 또는 빅테크)의 요약 정보."""
+
+    name: str  # "AI HW" | "빅테크"
+    total_usd: float
+    companies: list[CompanySummary]  # 시총 내림차순
+
+
+class AihwSummary(BaseModel):
+    """AI HW 비율 지표의 전체 요약."""
+
+    as_of: date
+    ratio: float
+    ratio_prev: float | None
+    change_pp: float | None  # 전일 대비 %p (ratio 차이 × 100)
+    high_30d: float
+    low_30d: float
+    threshold: float
+    status: str | None  # "cross_up" | "cross_down" | "above" | None
+    groups: list[GroupSummary]
