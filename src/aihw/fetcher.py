@@ -91,6 +91,19 @@ def _download_prices(tickers: list[str], start: date, end: date) -> pd.DataFrame
     return close
 
 
+def _resolve_shares(info: dict, fast_shares: int | None) -> int | None:
+    """상장주식수 우선순위: impliedSharesOutstanding > sharesOutstanding > fast_info.shares.
+
+    듀얼클래스 종목(GOOGL, META 등)은 `sharesOutstanding`이 일부 클래스만
+    집계해 실제보다 과소평가되는 경우가 있어, 전체 클래스를 합산한
+    `impliedSharesOutstanding`을 우선한다.
+    """
+    n = info.get("impliedSharesOutstanding") or info.get("sharesOutstanding")
+    if not n:
+        n = fast_shares
+    return int(n) if n else None
+
+
 def _download_shares(tickers: list[str], retries: int = 3) -> dict[str, int]:
     """티커별 현재 상장주식수. 실패 시 재시도 후 FetchError."""
     import yfinance as yf
@@ -101,9 +114,8 @@ def _download_shares(tickers: list[str], retries: int = 3) -> dict[str, int]:
         for attempt in range(retries):
             try:
                 tk = yf.Ticker(t)
-                n = tk.info.get("sharesOutstanding")
-                if not n:
-                    n = getattr(tk.fast_info, "shares", None)
+                fast_shares = getattr(tk.fast_info, "shares", None)
+                n = _resolve_shares(tk.info, fast_shares)
                 if n:
                     break
             except Exception as e:  # noqa: BLE001 — 재시도 후 FetchError로 변환

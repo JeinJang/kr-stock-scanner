@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from src.aihw.fetcher import FetchError, build_daily_caps
+from src.aihw.fetcher import FetchError, _resolve_shares, build_daily_caps
 
 IDX = pd.to_datetime(["2026-01-10", "2026-01-11", "2026-01-12"])
 
@@ -88,3 +88,20 @@ class TestBuildDailyCaps:
         assert not any(c.ticker == "005930.KS" and c.date == date(2026, 1, 10) for c in caps)
         assert any(c.ticker == "005930.KS" and c.date == date(2026, 1, 12) for c in caps)
         assert any(c.ticker == "NVDA" and c.date == date(2026, 1, 10) for c in caps)
+
+
+class TestResolveShares:
+    def test_prefers_implied_over_shares_outstanding(self):
+        # GOOGL류 듀얼클래스: sharesOutstanding은 일부 클래스만 집계 → implied 우선
+        info = {"impliedSharesOutstanding": 12_229_934_831, "sharesOutstanding": 5_867_155_790}
+        assert _resolve_shares(info, fast_shares=999) == 12_229_934_831
+
+    def test_falls_back_to_shares_outstanding_when_implied_missing(self):
+        info = {"sharesOutstanding": 7_430_000_000}
+        assert _resolve_shares(info, fast_shares=999) == 7_430_000_000
+
+    def test_falls_back_to_fast_info_when_info_empty(self):
+        assert _resolve_shares({}, fast_shares=24_221_000_000) == 24_221_000_000
+
+    def test_returns_none_when_nothing_available(self):
+        assert _resolve_shares({}, fast_shares=None) is None
