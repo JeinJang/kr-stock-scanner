@@ -93,3 +93,30 @@ def test_related_config_defaults():
     assert config.related.model == "gpt-5-nano"
     assert config.related.report_dir == "reports"
     assert config.related.max_tokens_per_section == 8000
+
+
+class TestAihwSection:
+    def test_default_aihw_config(self):
+        from src.config import ScannerConfig
+        config = ScannerConfig()
+        assert config.aihw.threshold == 0.8
+        assert config.aihw.base_date == "2026-01-10"
+        assert config.aihw.auto_send is True
+        assert "NVDA" in config.aihw.ai_hw_tickers
+        assert "005930.KS" in config.aihw.ai_hw_tickers
+        assert "MSFT" in config.aihw.big_tech_tickers
+        assert config.aihw.benchmarks == ["SPY", "RSP"]
+        assert config.aihw.report_dir == "reports"
+
+    def test_aihw_config_from_yaml(self, tmp_path):
+        from src.config import load_scanner_config
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text(
+            "aihw:\n  threshold: 0.75\n  auto_send: false\n",
+            encoding="utf-8",
+        )
+        config = load_scanner_config(yaml_file)
+        assert config.aihw.threshold == 0.75
+        assert config.aihw.auto_send is False
+        # 나머지는 기본값 유지
+        assert "NVDA" in config.aihw.ai_hw_tickers

@@ -36,3 +36,23 @@ related:
   model: "gpt-5-nano"
   report_dir: "reports"
   max_tokens_per_section: 8000
+
+aihw:
+  ai_hw_tickers:
+    NVDA: 엔비디아
+    AVGO: 브로드컴
+    005930.KS: 삼성전자
+    000660.KS: SK하이닉스
+    MU: 마이크론
+    SNDK: 샌디스크
+  big_tech_tickers:
+    AMZN: 아마존
+    TSLA: 테슬라
+    MSFT: MS
+    META: 메타
+    GOOGL: 구글
+  benchmarks: ["SPY", "RSP"]
+  base_date: "2026-01-10"
+  threshold: 0.8
+  report_dir: "reports"
+  auto_send: true
