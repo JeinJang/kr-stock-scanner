@@ -1,9 +1,17 @@
+import sys
+import types
 from datetime import date
 
 import pandas as pd
 import pytest
 
-from src.aihw.fetcher import FetchError, _resolve_shares, build_daily_caps
+from src.aihw.fetcher import (
+    FetchError,
+    _download_shares,
+    _last_complete_date,
+    _resolve_shares,
+    build_daily_caps,
+)
 
 IDX = pd.to_datetime(["2026-01-10", "2026-01-11", "2026-01-12"])
 
@@ -89,6 +97,49 @@ class TestBuildDailyCaps:
         assert any(c.ticker == "005930.KS" and c.date == date(2026, 1, 12) for c in caps)
         assert any(c.ticker == "NVDA" and c.date == date(2026, 1, 10) for c in caps)
 
+    def test_fx_only_ghost_day_is_removed_entirely(self):
+        # 1/11: 주말/휴장으로 cap 종목(NVDA, 005930.KS)이 전부 결측 —
+        # KRW=X만 거래되는 유령 거래일. ffill로 "가짜 완전일"이 되면 안 된다.
+        prices = pd.DataFrame(
+            {
+                "NVDA": [100.0, None, 120.0],
+                "005930.KS": [70000.0, None, 72000.0],
+                "SPY": [500.0, None, 510.0],
+            },
+            index=IDX,
+        )
+        fx = pd.Series([1300.0, 1310.0, 1350.0], index=IDX)  # FX는 매일 거래
+        caps = build_daily_caps(
+            prices, SHARES, fx, ["NVDA", "005930.KS"], ["SPY"], None
+        )
+        assert not any(c.date == date(2026, 1, 11) for c in caps)
+        # ffill이 유령일을 건너뛰고 직전 실거래일 값을 정상적으로 이어받는다
+        nvda_d3 = next(c for c in caps if c.ticker == "NVDA" and c.date == date(2026, 1, 12))
+        assert nvda_d3.close == pytest.approx(120.0)
+
+
+class TestLastCompleteDate:
+    def test_returns_last_date_all_cap_tickers_have_raw_observation(self):
+        idx = pd.to_datetime(["2026-01-10", "2026-01-11", "2026-01-12"])
+        prices = pd.DataFrame(
+            {
+                "NVDA": [100.0, 110.0, 120.0],
+                "005930.KS": [70000.0, 71000.0, None],  # 마지막날 결측(하이브리드 행)
+            },
+            index=idx,
+        )
+        assert _last_complete_date(prices, ["NVDA", "005930.KS"]) == date(2026, 1, 11)
+
+    def test_all_complete_returns_max_date(self):
+        idx = pd.to_datetime(["2026-01-10", "2026-01-11"])
+        prices = pd.DataFrame({"NVDA": [100.0, 110.0]}, index=idx)
+        assert _last_complete_date(prices, ["NVDA"]) == date(2026, 1, 11)
+
+    def test_no_complete_date_returns_none(self):
+        idx = pd.to_datetime(["2026-01-10"])
+        prices = pd.DataFrame({"NVDA": [None]}, index=idx)
+        assert _last_complete_date(prices, ["NVDA"]) is None
+
 
 class TestResolveShares:
     def test_prefers_implied_over_shares_outstanding(self):
@@ -105,3 +156,33 @@ class TestResolveShares:
 
     def test_returns_none_when_nothing_available(self):
         assert _resolve_shares({}, fast_shares=None) is None
+
+
+class TestDownloadShares:
+    """fast_info는 info에 상장주식수가 없을 때만 조회해야 한다 (I3)."""
+
+    def test_skips_fast_info_when_info_has_shares(self, monkeypatch):
+        class FakeTicker:
+            def __init__(self, ticker):
+                self.info = {"impliedSharesOutstanding": 12_000_000_000}
+
+            @property
+            def fast_info(self):
+                raise AssertionError("info에 상장주식수가 있으면 fast_info를 조회하면 안 됨")
+
+        monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=FakeTicker))
+        shares = _download_shares(["NVDA"])
+        assert shares["NVDA"] == 12_000_000_000
+
+    def test_queries_fast_info_when_info_lacks_shares(self, monkeypatch):
+        class FakeFastInfo:
+            shares = 24_221_000_000
+
+        class FakeTicker:
+            def __init__(self, ticker):
+                self.info = {}
+                self.fast_info = FakeFastInfo()
+
+        monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=FakeTicker))
+        shares = _download_shares(["MU"])
+        assert shares["MU"] == 24_221_000_000

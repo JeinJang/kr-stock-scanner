@@ -36,6 +36,13 @@ def build_daily_caps(
         if t not in shares or not shares[t]:
             raise FetchError(f"상장주식수 없음: {t}")
 
+    # FX(KRW=X) 전용 유령 거래일 제거: cap 종목이 전부 결측인 행은 주말/휴장일에
+    # KRW=X만 거래되며 생긴 가짜 행이다. ffill 이전에 제거해야 그 행이
+    # "완전한 거래일"로 둔갑해 snapshot으로 동결되는 것을 막는다.
+    ghost_mask = prices[cap_tickers].isna().all(axis=1)
+    if ghost_mask.any():
+        prices = prices[~ghost_mask]
+
     prices = prices.ffill()
     fx = fx.ffill()
 
@@ -68,6 +75,20 @@ def build_daily_caps(
                 market_cap_usd=None, source=source,
             ))
     return rows
+
+
+def _last_complete_date(prices: pd.DataFrame, cap_tickers: list[str]) -> date | None:
+    """모든 cap_tickers가 원본(ffill 이전) 관측치를 가진 마지막 날짜.
+
+    주말 FX 전용 유령일이나, 16:00 KST 실행 시 일부 해외 종목이 아직
+    당일 종가를 갖지 못해 생기는 한국-오늘/미국-어제 하이브리드 행은
+    "완전한 거래일"이 아니므로 제외한다.
+    """
+    mask = prices[cap_tickers].notna().all(axis=1)
+    complete_dates = prices.index[mask]
+    if len(complete_dates) == 0:
+        return None
+    return complete_dates.max().date()
 
 
 def _download_prices(tickers: list[str], start: date, end: date) -> pd.DataFrame:
@@ -114,8 +135,15 @@ def _download_shares(tickers: list[str], retries: int = 3) -> dict[str, int]:
         for attempt in range(retries):
             try:
                 tk = yf.Ticker(t)
-                fast_shares = getattr(tk.fast_info, "shares", None)
-                n = _resolve_shares(tk.info, fast_shares)
+                info = tk.info
+                fast_shares = None
+                if not (info.get("impliedSharesOutstanding") or info.get("sharesOutstanding")):
+                    # info에 상장주식수가 없을 때만 fast_info를 추가 조회 (불필요한 API 호출 회피)
+                    try:
+                        fast_shares = getattr(tk.fast_info, "shares", None)
+                    except Exception as e:  # noqa: BLE001 — fast_info 실패해도 info 결과로 재시도 가능
+                        logger.warning(f"{t} fast_info 조회 실패: {e}")
+                n = _resolve_shares(info, fast_shares)
                 if n:
                     break
             except Exception as e:  # noqa: BLE001 — 재시도 후 FetchError로 변환
@@ -139,7 +167,7 @@ def fetch_all(
     fx = prices[FX_TICKER]
     prices = prices.drop(columns=[FX_TICKER])
     shares = _download_shares(cap_tickers)
-    snapshot_date = prices.index.max().date()
+    snapshot_date = _last_complete_date(prices, cap_tickers)
     logger.info(
         f"aihw 수집 완료: {len(prices)}일 × {len(prices.columns)}종목, "
         f"snapshot={snapshot_date}"
