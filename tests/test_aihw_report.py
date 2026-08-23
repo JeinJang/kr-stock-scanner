@@ -63,3 +63,22 @@ class TestBuildCaption:
         s.groups[0].companies = companies
         s.groups[1].companies = companies
         assert len(build_caption(s)) <= 1024
+
+    def test_over_limit_truncated_with_ellipsis(self):
+        # 1,024자 초과 시 절단 및 줄임표 추가 확인
+        companies = [
+            CompanySummary(ticker=f"T{i}", name=f"아주긴종목이름{i}", cap_usd=1.0e12, day_change_pct=1.23)
+            for i in range(40)
+        ]
+        s = _summary()
+        s.groups[0].companies = companies
+        s.groups[1].companies = companies
+        caption = build_caption(s)
+        assert len(caption) <= 1024
+        assert caption.endswith("…")
+
+    def test_cross_down_message(self):
+        # cross_down 상태에서 하향 이탈 메시지 표시, 경고 접두 없음
+        caption = build_caption(_summary(ratio=0.79, status="cross_down"))
+        assert "하향 이탈" in caption
+        assert not caption.startswith("⚠️")
