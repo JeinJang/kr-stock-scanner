@@ -77,3 +77,14 @@ class TestBuildDailyCaps:
         prices["NVDA"] = None
         with pytest.raises(FetchError, match="NVDA"):
             build_daily_caps(prices, SHARES, _fx(), ["NVDA"], [], None)
+
+    def test_leading_nan_rows_are_omitted(self):
+        prices = _prices()
+        prices.loc[IDX[0], "005930.KS"] = None  # 시작일 결측 (ffill 불가)
+        fx = _fx()
+        fx.loc[IDX[0]] = None
+        caps = build_daily_caps(prices, SHARES, fx, ["NVDA", "005930.KS"], ["SPY"], None)
+        # 시작일의 삼전 행은 조용히 생략되고, 에러 없이 나머지는 생성된다
+        assert not any(c.ticker == "005930.KS" and c.date == date(2026, 1, 10) for c in caps)
+        assert any(c.ticker == "005930.KS" and c.date == date(2026, 1, 12) for c in caps)
+        assert any(c.ticker == "NVDA" and c.date == date(2026, 1, 10) for c in caps)
