@@ -246,6 +246,12 @@ class Reporter:
             )
             await asyncio.sleep(0.5)
 
+    async def send_photo(self, photo_path: str, caption: str) -> None:
+        """사진 + 캡션 전송 (aihw 지표 공유용)."""
+        bot = Bot(token=self.bot_token)
+        with open(photo_path, "rb") as f:
+            await bot.send_photo(chat_id=self.chat_id, photo=f, caption=caption)
+
     async def send_report(
         self,
         result: ScanResult,
