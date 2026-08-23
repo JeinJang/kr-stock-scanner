@@ -4,9 +4,17 @@ AI HW/빅테크 지표 산출물: 텔레그램 캡션, HTML 리포트, 공유용
 """
 from __future__ import annotations
 
-from src.aihw.models import AihwSummary
+import os
+from pathlib import Path
+
+import plotly.graph_objects as go
+from jinja2 import Environment, FileSystemLoader
+from loguru import logger
+
+from src.aihw.models import AihwSeries, AihwSummary
 
 CAPTION_LIMIT = 1024
+GROUP_COLORS = {"AI HW": "#f5a623", "빅테크": "#7b61c4", "SPY": "#4a90d9", "RSP": "#3d9970"}
 
 
 def _fmt_t(cap_usd: float) -> str:
@@ -47,3 +55,81 @@ def build_caption(summary: AihwSummary) -> str:
     if len(caption) > CAPTION_LIMIT:
         caption = caption[: CAPTION_LIMIT - 1] + "…"
     return caption
+
+
+def build_figures(series: AihwSeries, threshold: float) -> tuple[go.Figure, go.Figure]:
+    ratio_fig = go.Figure()
+    ratio_fig.add_trace(go.Scatter(
+        x=series.dates, y=[r * 100 for r in series.ratio],
+        mode="lines", name="AI HW / 빅테크",
+        line=dict(color=GROUP_COLORS["AI HW"], width=2),
+    ))
+    ratio_fig.add_hline(
+        y=threshold * 100, line_color="red", line_width=2,
+        annotation_text=f"경고선 {threshold * 100:.0f}%",
+    )
+    ratio_fig.update_layout(
+        title="AI HW 시총합 / 빅테크 시총합 비율 (%)",
+        yaxis_title="%", template="plotly_white", height=420,
+    )
+
+    index_fig = go.Figure()
+    for name, values in series.indexed.items():
+        index_fig.add_trace(go.Scatter(
+            x=series.dates, y=values, mode="lines", name=name,
+            line=dict(color=GROUP_COLORS.get(name), width=2),
+        ))
+    base = series.dates[0].isoformat()
+    index_fig.update_layout(
+        title=f"시총 지수 비교 ({base} = 100)",
+        template="plotly_white", height=420,
+    )
+    return ratio_fig, index_fig
+
+
+def generate_html(series: AihwSeries, summary: AihwSummary, output_dir: str) -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.html")
+    ratio_fig, index_fig = build_figures(series, summary.threshold)
+
+    env = Environment(loader=FileSystemLoader(str(Path(__file__).parent / "templates")))
+    html = env.get_template("report.html").render(
+        summary=summary,
+        ratio_pct=f"{summary.ratio * 100:.1f}%",
+        ratio_div=ratio_fig.to_html(full_html=False, include_plotlyjs="cdn"),
+        index_div=index_fig.to_html(full_html=False, include_plotlyjs=False),
+        fmt_t=_fmt_t,
+        fmt_pct=_fmt_pct,
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    logger.info(f"HTML 리포트 저장: {path}")
+    return path
+
+
+def generate_png(series: AihwSeries, summary: AihwSummary, output_dir: str) -> str:
+    from plotly.subplots import make_subplots
+
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.png")
+    ratio_fig, index_fig = build_figures(series, summary.threshold)
+
+    combined = make_subplots(
+        rows=2, cols=1, shared_xaxes=False, vertical_spacing=0.12,
+        subplot_titles=(
+            "AI HW / 빅테크 시총 비율 (%)",
+            f"시총 지수 비교 ({series.dates[0].isoformat()} = 100)",
+        ),
+    )
+    for trace in ratio_fig.data:
+        combined.add_trace(trace, row=1, col=1)
+    combined.add_hline(y=summary.threshold * 100, line_color="red", line_width=2, row=1, col=1)
+    for trace in index_fig.data:
+        combined.add_trace(trace, row=2, col=1)
+    combined.update_layout(
+        template="plotly_white", height=900, width=1000,
+        title=f"AI HW / 빅테크 고점 지표 — {summary.as_of.isoformat()}",
+    )
+    combined.write_image(path, scale=2)
+    logger.info(f"PNG 저장: {path}")
+    return path

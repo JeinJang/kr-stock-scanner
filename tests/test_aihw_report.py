@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from src.aihw.models import AihwSummary, CompanySummary, GroupSummary
-from src.aihw.report import build_caption
+from src.aihw.models import AihwSeries, AihwSummary, CompanySummary, GroupSummary
+from src.aihw.report import build_caption, build_figures, generate_html
 
 
 def _summary(ratio=0.762, status=None):
@@ -82,3 +82,40 @@ class TestBuildCaption:
         caption = build_caption(_summary(ratio=0.79, status="cross_down"))
         assert "하향 이탈" in caption
         assert not caption.startswith("⚠️")
+
+
+def _series():
+    return AihwSeries(
+        dates=[date(2026, 1, 10), date(2026, 1, 11)],
+        ai_hw_total=[6.0e12, 6.8e12],
+        big_tech_total=[8.8e12, 8.9e12],
+        ratio=[0.682, 0.764],
+        indexed={
+            "AI HW": [100.0, 113.3],
+            "빅테크": [100.0, 101.1],
+            "SPY": [100.0, 101.0],
+            "RSP": [100.0, 100.4],
+        },
+    )
+
+
+class TestBuildFigures:
+    def test_ratio_figure_has_threshold_line(self):
+        ratio_fig, index_fig = build_figures(_series(), threshold=0.8)
+        # 경고선은 hline shape로 추가됨
+        assert any(s.type == "line" for s in ratio_fig.layout.shapes)
+        assert len(ratio_fig.data) == 1  # 비율 트레이스 1개
+
+    def test_index_figure_has_all_series(self):
+        _, index_fig = build_figures(_series(), threshold=0.8)
+        names = {t.name for t in index_fig.data}
+        assert names == {"AI HW", "빅테크", "SPY", "RSP"}
+
+
+class TestGenerateHtml:
+    def test_writes_file_with_table(self, tmp_path):
+        path = generate_html(_series(), _summary(), output_dir=str(tmp_path))
+        assert path.endswith("aihw-2026-08-22.html")
+        html = open(path, encoding="utf-8").read()
+        assert "엔비디아" in html
+        assert "76.2%" in html
