@@ -5,9 +5,9 @@ AI HW/빅테크 지표의 일별 시총 스냅샷 저장소 (data/aihw.db).
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Column, Date, Float, String, create_engine, select
+from sqlalchemy import BigInteger, Column, Date, DateTime, Float, String, create_engine, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -26,6 +26,7 @@ class DailyCapRow(AihwBase):
     shares = Column(BigInteger, nullable=True)
     market_cap_usd = Column(Float, nullable=True)
     source = Column(String(10), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
 
 
 class AihwDB:

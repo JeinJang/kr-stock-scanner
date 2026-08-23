@@ -1,6 +1,5 @@
 from datetime import date
 
-import pytest
 
 from src.aihw.models import AihwSeries, AihwSummary, CompanySummary, GroupSummary
 from src.aihw.report import build_caption, build_figures, generate_html

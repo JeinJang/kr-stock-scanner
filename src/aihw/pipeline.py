@@ -50,9 +50,13 @@ def run_aihw(
     summary = summarize(
         series, caps, config.ai_hw_tickers, config.big_tech_tickers, config.threshold,
     )
-    return AihwResult(
+    result = AihwResult(
         summary=summary,
         html_path=generate_html(series, summary, config.report_dir),
         png_path=generate_png(series, summary, config.report_dir),
         caption=build_caption(summary),
     )
+    logger.info(
+        f"aihw 완료: as_of={summary.as_of} ratio={summary.ratio:.4f} status={summary.status}"
+    )
+    return result

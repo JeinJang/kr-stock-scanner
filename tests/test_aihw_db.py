@@ -1,6 +1,9 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
-from src.aihw.db import AihwDB
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from src.aihw.db import AihwDB, DailyCapRow
 from src.aihw.models import DailyCap
 
 D1, D2 = date(2026, 1, 10), date(2026, 1, 11)
@@ -59,3 +62,14 @@ class TestAihwDB:
         db.save_caps([_row(D1, "NVDA", 101.0, "backfill")])
         rows = db.load_caps(D1, D1)
         assert rows[0].market_cap_usd == 101.0
+
+    def test_save_caps_records_created_at(self):
+        db = _make_db()
+        before = datetime.now() - timedelta(seconds=5)
+        db.save_caps([_row(D1, "NVDA", 100.0, "backfill")])
+        with Session(db.engine) as session:
+            row = session.execute(
+                select(DailyCapRow).where(DailyCapRow.date == D1, DailyCapRow.ticker == "NVDA")
+            ).scalar_one()
+            assert row.created_at is not None
+            assert before <= row.created_at <= datetime.now() + timedelta(seconds=5)

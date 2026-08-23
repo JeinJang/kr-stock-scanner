@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from src.aihw.compute import build_series, summarize, threshold_status
-from src.aihw.models import AihwSummary, DailyCap
+from src.aihw.models import DailyCap
 
 
 def _cap(d, ticker, cap_usd, close=100.0):

@@ -98,7 +98,7 @@ python -m src.cli prices status
 
 돌파 신선도 지표는 `data/prices.db`의 일봉 이력을 씁니다. 최초 1회 `prices backfill`이 필요하고, 이후에는 `run`이 실행 때마다 자동으로 동기화합니다(평상시 KRX 호출 2건). 이 파일은 언제든 재생성 가능한 캐시이므로 백업 대상이 아닙니다.
 
-# AI HW / 빅테크 시총 비율 지표 (고점 경고)
+### AI HW / 빅테크 시총 비율 지표 (고점 경고)
 
 ```bash
 python -m src.cli aihw           # 수집 + HTML/PNG 리포트 + 터미널 요약
