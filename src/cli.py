@@ -57,7 +57,7 @@ def _run_aihw_step(config, settings) -> None:
 
         console.print("[dim]aihw 지표 생성 중...[/dim]")
         result = aihw_pipeline.run_aihw(config.aihw)
-        if settings.telegram_bot_token:
+        if config.telegram.enabled and settings.telegram_bot_token:
             from src.reporter import Reporter
 
             chat_id = settings.aihw_telegram_chat_id or settings.telegram_chat_id
@@ -294,7 +294,7 @@ def stats(
 @app.command()
 def aihw(
     send: bool = typer.Option(False, "--send", help="PNG+캡션을 텔레그램 채널로 전송"),
-    days: int = typer.Option(None, "--days", help="차트 기간 (기본: base_date부터)"),
+    days: int | None = typer.Option(None, "--days", help="차트 기간 (기본: base_date부터)"),
 ):
     """AI HW / 빅테크 시총 비율 지표: 수집·저장·리포트 생성."""
     from src.aihw import pipeline as aihw_pipeline
@@ -302,7 +302,7 @@ def aihw(
     settings = Settings()
     config = load_scanner_config()
     aihw_config = config.aihw
-    if days:
+    if days is not None:
         from datetime import timedelta
         base = date.today() - timedelta(days=days)
         aihw_config = aihw_config.model_copy(update={"base_date": base.isoformat()})
