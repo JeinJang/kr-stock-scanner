@@ -74,3 +74,4 @@ class TestBuildSeries:
         s = build_series(caps, AI_HW, BIG_TECH, ["SPY", "RSP"], base_date=D1)
         assert s.dates == [D1, D2]
         assert len(s.indexed["SPY"]) == 2
+        assert "RSP" not in s.indexed
