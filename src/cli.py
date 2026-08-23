@@ -267,6 +267,51 @@ def stats(
     console.print(f"  최대: {max(counts)} / 최소: {min(counts)}")
 
 
+@app.command()
+def aihw(
+    send: bool = typer.Option(False, "--send", help="PNG+캡션을 텔레그램 채널로 전송"),
+    days: int = typer.Option(None, "--days", help="차트 기간 (기본: base_date부터)"),
+):
+    """AI HW / 빅테크 시총 비율 지표: 수집·저장·리포트 생성."""
+    from src.aihw import pipeline as aihw_pipeline
+
+    settings = Settings()
+    config = load_scanner_config()
+    aihw_config = config.aihw
+    if days:
+        from datetime import timedelta
+        base = date.today() - timedelta(days=days)
+        aihw_config = aihw_config.model_copy(update={"base_date": base.isoformat()})
+
+    console.print("[bold]AI HW / 빅테크 시총 비율 수집 중...[/bold]")
+    result = aihw_pipeline.run_aihw(aihw_config)
+    s = result.summary
+
+    warn = s.status in ("above", "cross_up")
+    color = "red" if warn else "green"
+    console.print(
+        f"[bold {color}]비율: {s.ratio * 100:.1f}%[/bold {color}] "
+        f"(경고선 {s.threshold * 100:.0f}%)"
+    )
+    if s.change_pp is not None:
+        console.print(f"전일 대비 {s.change_pp:+.1f}%p · 30일 최고 {s.high_30d * 100:.1f}%")
+    for group in s.groups:
+        console.print(f"[bold][{group.name}][/bold] ${group.total_usd / 1e12:.2f}T")
+    console.print(f"HTML: {result.html_path}")
+    console.print(f"PNG:  {result.png_path}")
+
+    if send:
+        if not settings.telegram_bot_token:
+            console.print("[red]TELEGRAM_BOT_TOKEN이 없어 전송을 건너뜁니다[/red]")
+            raise typer.Exit(code=1)
+        from src.reporter import Reporter
+
+        chat_id = settings.aihw_telegram_chat_id or settings.telegram_chat_id
+        reporter = Reporter(settings.telegram_bot_token, chat_id)
+        asyncio.run(reporter.send_photo(result.png_path, result.caption))
+        console.print("[green]텔레그램 전송 완료![/green]")
+
+
 @app.command(name="test-ai")
 def test_ai():
     """Test OpenAI API connection and model response."""
