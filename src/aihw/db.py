@@ -60,8 +60,8 @@ class AihwDB:
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["date", "ticker"], set_=set_,
                     )
-                session.execute(stmt)
-                saved += 1
+                result = session.execute(stmt)
+                saved += result.rowcount
             session.commit()
         return saved
 

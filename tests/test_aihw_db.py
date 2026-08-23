@@ -39,7 +39,8 @@ class TestAihwDB:
     def test_backfill_does_not_overwrite_snapshot(self):
         db = _make_db()
         db.save_caps([_row(D1, "NVDA", 100.0, "snapshot")])
-        db.save_caps([_row(D1, "NVDA", 999.0, "backfill")])
+        blocked = db.save_caps([_row(D1, "NVDA", 999.0, "backfill")])
+        assert blocked == 0  # backfill blocked by existing snapshot
         rows = db.load_caps(D1, D1)
         assert rows[0].market_cap_usd == 100.0
         assert rows[0].source == "snapshot"
