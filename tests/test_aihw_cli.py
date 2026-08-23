@@ -48,3 +48,22 @@ class TestAihwCommand:
         result = runner.invoke(app, ["aihw", "--send"])
         assert result.exit_code == 0
         mock_asyncio.assert_called_once()  # send_photo 코루틴 실행
+
+    @patch("src.aihw.pipeline.run_aihw")
+    def test_aihw_send_without_token_exits_1(self, mock_run, monkeypatch):
+        # Settings는 .env 파일도 읽으므로(pydantic-settings), delenv만으로는
+        # 리포지토리의 실제 .env에 남아 있는 토큰이 그대로 남을 수 있다.
+        # 빈 문자열로 env var를 설정하면 .env 값보다 우선해 빈 토큰이 강제된다.
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
+        mock_run.return_value = _result()
+        result = runner.invoke(app, ["aihw", "--send"])
+        assert result.exit_code == 1
+
+    @patch("src.aihw.pipeline.run_aihw")
+    def test_aihw_days_overrides_base_date(self, mock_run):
+        mock_run.return_value = _result()
+        result = runner.invoke(app, ["aihw", "--days", "30"])
+        assert result.exit_code == 0
+        passed_config = mock_run.call_args.args[0]
+        from datetime import timedelta
+        assert passed_config.base_date == (date.today() - timedelta(days=30)).isoformat()
