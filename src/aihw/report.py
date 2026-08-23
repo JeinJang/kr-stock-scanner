@@ -152,16 +152,14 @@ def generate_html(
     return path
 
 
-def generate_png(
+def _build_combined_figure(
     series: AihwSeries,
     summary: AihwSummary,
-    output_dir: str,
     names: dict[str, str] | None = None,
-) -> str:
+) -> go.Figure:
+    """PNG용 3단 결합 차트. 각 차트의 범례를 해당 차트 오른쪽에 분리 배치한다."""
     from plotly.subplots import make_subplots
 
-    os.makedirs(output_dir, exist_ok=True)
-    path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.png")
     ratio_fig, index_fig = build_figures(series, summary.threshold)
     cap_fig = build_cap_figure(series, names)
 
@@ -173,17 +171,38 @@ def generate_png(
             f"시총 지수 비교 ({series.dates[0].isoformat()} = 100)",
         ),
     )
-    for trace in ratio_fig.data:
-        combined.add_trace(trace, row=1, col=1)
+    row_legends = [
+        (ratio_fig, 1, "legend"),
+        (cap_fig, 2, "legend2"),
+        (index_fig, 3, "legend3"),
+    ]
+    for fig, row, legend_id in row_legends:
+        for trace in fig.data:
+            trace.update(legend=legend_id)
+            combined.add_trace(trace, row=row, col=1)
     combined.add_hline(y=summary.threshold * 100, line_color="red", line_width=2, row=1, col=1)
-    for trace in cap_fig.data:
-        combined.add_trace(trace, row=2, col=1)
-    for trace in index_fig.data:
-        combined.add_trace(trace, row=3, col=1)
+
+    # 각 행의 y-domain 상단에 해당 범례를 정렬 (3행 균등 분할 + spacing 0.08)
+    legend_style = dict(xanchor="left", x=1.02, yanchor="top")
     combined.update_layout(
-        template="plotly_white", height=1350, width=1000,
+        template="plotly_white", height=1350, width=1150,
         title=f"AI HW / 빅테크 고점 지표 — {summary.as_of.isoformat()}",
+        legend=dict(title_text="비율", y=1.0, **legend_style),
+        legend2=dict(title_text="시가총액", y=0.64, **legend_style),
+        legend3=dict(title_text="지수 비교", y=0.28, **legend_style),
     )
+    return combined
+
+
+def generate_png(
+    series: AihwSeries,
+    summary: AihwSummary,
+    output_dir: str,
+    names: dict[str, str] | None = None,
+) -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"aihw-{summary.as_of.isoformat()}.png")
+    combined = _build_combined_figure(series, summary, names)
     combined.write_image(path, scale=2)
     logger.info(f"PNG 저장: {path}")
     return path

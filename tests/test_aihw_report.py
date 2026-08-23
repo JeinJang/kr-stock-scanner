@@ -2,7 +2,13 @@ from datetime import date
 
 
 from src.aihw.models import AihwSeries, AihwSummary, CompanySummary, GroupSummary
-from src.aihw.report import build_cap_figure, build_caption, build_figures, generate_html
+from src.aihw.report import (
+    _build_combined_figure,
+    build_cap_figure,
+    build_caption,
+    build_figures,
+    generate_html,
+)
 
 
 def _summary(ratio=0.762, status=None):
@@ -143,6 +149,26 @@ class TestBuildCapFigure:
         s.company_caps = {}
         fig = build_cap_figure(s)
         assert len(fig.data) == 2
+
+
+class TestBuildCombinedFigure:
+    def test_each_row_has_own_legend(self):
+        fig = _build_combined_figure(_series(), _summary(), names={"NVDA": "엔비디아"})
+        legends = {t.legend for t in fig.data}
+        assert legends == {"legend", "legend2", "legend3"}
+        # 비율 차트(1행) 트레이스는 legend, 시총 차트(2행)는 legend2, 지수(3행)는 legend3
+        by_legend = {}
+        for t in fig.data:
+            by_legend.setdefault(t.legend, []).append(t.name)
+        assert by_legend["legend"] == ["AI HW / 빅테크"]
+        assert "엔비디아" in by_legend["legend2"]
+        assert set(by_legend["legend3"]) == {"AI HW", "빅테크", "SPY", "RSP"}
+
+    def test_layout_defines_three_legends(self):
+        fig = _build_combined_figure(_series(), _summary())
+        assert fig.layout.legend.y == 1.0
+        assert fig.layout.legend2.y == 0.64
+        assert fig.layout.legend3.y == 0.28
 
 
 class TestGenerateHtml:
