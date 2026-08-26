@@ -43,24 +43,24 @@ def build_daily_caps(
     if ghost_mask.any():
         prices = prices[~ghost_mask]
 
-    # snapshot_date(마지막 완전 거래일) 이후의 트레일링 행 제거: 16:00 KST 실행 시
-    # 한국 종가만 있고 미국 종가는 ffill로 채워진 하이브리드 행이 남는데, 이 행이
-    # 리포트의 최신 날짜가 되면 미국 종목 전일 대비가 0%로 표시된다.
-    # (중간 휴장일의 ffill은 유지 — 문제는 아무도 정정하지 않는 꼬리쪽 행뿐이다.)
-    if snapshot_date is not None:
-        prices = prices[[ts.date() <= snapshot_date for ts in prices.index]]
-
-    prices = prices.ffill()
+    # snapshot_date(마지막 완전 거래일) 이후의 트레일링 구간은 ffill을 적용하지
+    # 않고 실제 관측치만 배출한다. 16:00 KST 실행 시 한국 종가만 있고 미국은
+    # 아직 없는데, ffill 복사본을 배출하면 미국 종목 전일 대비가 0%로 표시된다.
+    # (중간 휴장일의 ffill은 유지 — 문제는 꼬리쪽 복사본뿐이다.)
+    raw = prices
+    filled = prices.ffill()
     fx = fx.ffill()
 
     rows: list[DailyCap] = []
-    for ts in prices.index:
+    for ts in filled.index:
         d = ts.date()
+        trailing = snapshot_date is not None and d > snapshot_date
+        frame = raw if trailing else filled
         source = "snapshot" if snapshot_date and d == snapshot_date else "backfill"
         for t in cap_tickers:
-            close = prices.at[ts, t]
+            close = frame.at[ts, t]
             if pd.isna(close):
-                continue  # 시계열 시작부의 결측 (ffill 이전 구간)
+                continue  # 시계열 시작부의 결측, 또는 트레일링 구간의 미관측 종목
             cap = float(close) * shares[t]
             if t.endswith(".KS"):
                 rate = fx.get(ts)
@@ -72,9 +72,9 @@ def build_daily_caps(
                 market_cap_usd=cap, source=source,
             ))
         for t in benchmark_tickers:
-            if t not in prices.columns:
+            if t not in frame.columns:
                 continue
-            close = prices.at[ts, t]
+            close = frame.at[ts, t]
             if pd.isna(close):
                 continue
             rows.append(DailyCap(

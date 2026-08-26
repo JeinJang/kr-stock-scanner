@@ -82,6 +82,21 @@ class TestBuildCaption:
         assert len(caption) <= 1024
         assert caption.endswith("…")
 
+    def test_basis_line_with_mixed_dates(self):
+        s = _summary()
+        s.basis_dates = {"미국": date(2026, 8, 25), "한국": date(2026, 8, 26)}
+        caption = build_caption(s)
+        assert "기준: 미국 08/25 · 한국 08/26" in caption
+
+    def test_basis_line_single_date(self):
+        s = _summary()
+        s.basis_dates = {"미국": date(2026, 8, 25), "한국": date(2026, 8, 25)}
+        caption = build_caption(s)
+        assert "기준: 08/25 종가" in caption
+
+    def test_no_basis_line_when_absent(self):
+        assert "기준:" not in build_caption(_summary())
+
     def test_cross_down_message(self):
         # cross_down 상태에서 하향 이탈 메시지 표시, 경고 접두 없음
         caption = build_caption(_summary(ratio=0.79, status="cross_down"))
@@ -178,6 +193,13 @@ class TestGenerateHtml:
         html = open(path, encoding="utf-8").read()
         assert "엔비디아" in html
         assert "76.2%" in html
+
+    def test_contains_basis_line(self, tmp_path):
+        s = _summary()
+        s.basis_dates = {"미국": date(2026, 8, 25), "한국": date(2026, 8, 26)}
+        path = generate_html(_series(), s, output_dir=str(tmp_path))
+        html = open(path, encoding="utf-8").read()
+        assert "기준: 미국 08/25 · 한국 08/26" in html
 
     def test_contains_cap_chart(self, tmp_path):
         path = generate_html(

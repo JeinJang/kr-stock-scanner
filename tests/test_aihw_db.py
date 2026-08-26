@@ -56,6 +56,18 @@ class TestAihwDB:
         assert rows[0].market_cap_usd == 105.0
         assert rows[0].source == "snapshot"
 
+    def test_delete_caps_after(self):
+        db = _make_db()
+        db.save_caps([
+            _row(D1, "NVDA", 100.0, "snapshot"),
+            _row(D2, "NVDA", 110.0, "backfill"),
+            _row(D2, "MSFT", 90.0, "backfill"),
+        ])
+        deleted = db.delete_caps_after(D1)
+        assert deleted == 2
+        rows = db.load_caps(D1, D2)
+        assert [r.date for r in rows] == [D1]
+
     def test_backfill_overwrites_backfill(self):
         db = _make_db()
         db.save_caps([_row(D1, "NVDA", 100.0, "backfill")])

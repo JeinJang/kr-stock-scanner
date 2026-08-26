@@ -32,6 +32,20 @@ def _fmt_pct(value: float | None) -> str:
     return f"({value:+.1f}%)"
 
 
+def build_basis_line(summary: AihwSummary) -> str | None:
+    """시장별 기준일 표기: 혼합 기준(한국 오늘·미국 어제)임을 알 수 있게 한다."""
+    if not summary.basis_dates:
+        return None
+    unique = set(summary.basis_dates.values())
+    if len(unique) == 1:
+        return f"기준: {next(iter(unique)).strftime('%m/%d')} 종가"
+    parts = [
+        f"{market} {d.strftime('%m/%d')}"
+        for market, d in sorted(summary.basis_dates.items(), key=lambda kv: kv[1])
+    ]
+    return "기준: " + " · ".join(parts)
+
+
 def build_caption(summary: AihwSummary) -> str:
     warn = summary.status in ("above", "cross_up")
     head = "⚠️ " if warn else "📊 "
@@ -49,6 +63,10 @@ def build_caption(summary: AihwSummary) -> str:
         parts.append(f"전일 대비 {summary.change_pp:+.1f}%p")
     parts.append(f"30일 최고 {summary.high_30d * 100:.1f}%")
     lines.append(" · ".join(parts))
+
+    basis = build_basis_line(summary)
+    if basis:
+        lines.append(basis)
 
     for group in summary.groups:
         lines.append("")
@@ -139,6 +157,7 @@ def generate_html(
     env = Environment(loader=FileSystemLoader(str(Path(__file__).parent / "templates")))
     html = env.get_template("report.html").render(
         summary=summary,
+        basis_line=build_basis_line(summary),
         ratio_pct=f"{summary.ratio * 100:.1f}%",
         ratio_div=ratio_fig.to_html(full_html=False, include_plotlyjs="cdn"),
         cap_div=cap_fig.to_html(full_html=False, include_plotlyjs=False),

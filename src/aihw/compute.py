@@ -87,16 +87,17 @@ def threshold_status(
 def _group_summary(
     name: str,
     tickers: dict[str, str],
-    today: dict[str, DailyCap],
-    prev: dict[str, DailyCap] | None,
+    latest: dict[str, DailyCap],
+    prev: dict[str, DailyCap],
 ) -> GroupSummary:
     """그룹별 요약 정보 생성 (시총 내림차순으로 정렬)."""
     companies = []
     for ticker, display_name in tickers.items():
-        cap = today[ticker].market_cap_usd
+        cap = latest[ticker].market_cap_usd
         change = None
-        if prev and ticker in prev and prev[ticker].market_cap_usd:
-            change = (cap / prev[ticker].market_cap_usd - 1.0) * 100.0
+        p = prev[ticker]
+        if p.date != latest[ticker].date and p.market_cap_usd:
+            change = (cap / p.market_cap_usd - 1.0) * 100.0
         companies.append(CompanySummary(
             ticker=ticker, name=display_name, cap_usd=cap, day_change_pct=change,
         ))
@@ -113,18 +114,40 @@ def summarize(
     big_tech: dict[str, str],
     threshold: float,
 ) -> AihwSummary:
-    """AI HW 비율 지표의 전체 요약 정보 생성."""
-    as_of = series.dates[-1]
-    prev_date = series.dates[-2] if len(series.dates) >= 2 else None
+    """AI HW 비율 지표의 전체 요약 정보 생성.
 
-    by_date: dict[date, dict[str, DailyCap]] = {}
-    for c in caps:
-        by_date.setdefault(c.date, {})[c.ticker] = c
-    today_row = by_date[as_of]
-    prev_row = by_date.get(prev_date) if prev_date else None
+    시장별 마감 시차(한국 오늘 종가 vs 미국 어제 종가) 때문에 단일 날짜 행을
+    기준으로 삼지 않고, 종목마다 자기 자신의 최신 관측치와 직전 관측치를
+    비교한다. 헤드라인 비율·그룹 합계도 종목별 최신 시총의 합으로 계산한다.
+    (시계열 차트는 series — 완전 거래일만 — 를 그대로 쓴다.)
+    """
+    cap_tickers = list(ai_hw) + list(big_tech)
+    history: dict[str, list[DailyCap]] = {t: [] for t in cap_tickers}
+    for c in sorted(caps, key=lambda c: c.date):
+        if c.ticker in history and c.market_cap_usd is not None:
+            history[c.ticker].append(c)
 
-    ratio = series.ratio[-1]
-    ratio_prev = series.ratio[-2] if len(series.ratio) >= 2 else None
+    latest = {t: rows[-1] for t, rows in history.items()}
+    prev = {t: (rows[-2] if len(rows) >= 2 else rows[-1]) for t, rows in history.items()}
+    as_of = max(c.date for c in latest.values())
+
+    basis_dates: dict[str, date] = {}
+    for t, c in latest.items():
+        market = "한국" if t.endswith(".KS") else "미국"
+        basis_dates[market] = max(basis_dates.get(market, c.date), c.date)
+
+    ai_group = _group_summary("AI HW", ai_hw, latest, prev)
+    big_group = _group_summary("빅테크", big_tech, latest, prev)
+    ratio = ai_group.total_usd / big_group.total_usd
+
+    # 종목별 직전 관측치의 합으로 전일 비율 계산 (직전 관측치가 하나도 없으면 None)
+    has_prev = any(prev[t].date != latest[t].date for t in cap_tickers)
+    ratio_prev = None
+    if has_prev:
+        prev_ai = sum(prev[t].market_cap_usd for t in ai_hw)
+        prev_big = sum(prev[t].market_cap_usd for t in big_tech)
+        ratio_prev = prev_ai / prev_big
+
     last_30 = series.ratio[-30:]
 
     return AihwSummary(
@@ -136,8 +159,6 @@ def summarize(
         low_30d=min(last_30),
         threshold=threshold,
         status=threshold_status(ratio, ratio_prev, threshold),
-        groups=[
-            _group_summary("AI HW", ai_hw, today_row, prev_row),
-            _group_summary("빅테크", big_tech, today_row, prev_row),
-        ],
+        groups=[ai_group, big_group],
+        basis_dates=basis_dates,
     )

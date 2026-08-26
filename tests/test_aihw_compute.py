@@ -87,6 +87,48 @@ class TestBuildSeries:
         assert "RSP" not in s.indexed
 
 
+class TestSummarizeMixedLatest:
+    def test_each_ticker_compares_to_its_own_previous_close(self):
+        # 한국 장만 마감된 저녁: 삼성전자는 D3까지, 미국 종목은 D2까지.
+        # 각 종목은 자기 자신의 직전 관측치와 비교해야 한다 (미국 0% 방지).
+        caps = [
+            _cap(D1, "NVDA", 200.0), _cap(D2, "NVDA", 300.0),
+            _cap(D1, "005930.KS", 100.0), _cap(D2, "005930.KS", 110.0),
+            _cap(D3, "005930.KS", 121.0),
+            _cap(D1, "MSFT", 300.0), _cap(D2, "MSFT", 330.0),
+        ]
+        series = build_series(caps, ["NVDA", "005930.KS"], ["MSFT"], [], base_date=D1)
+        assert series.dates == [D1, D2]  # 차트용 시계열은 완전 거래일만
+
+        summary = summarize(
+            series, caps,
+            ai_hw={"NVDA": "엔비디아", "005930.KS": "삼성전자"},
+            big_tech={"MSFT": "MS"},
+            threshold=0.8,
+        )
+        assert summary.as_of == D3
+        ai = summary.groups[0]
+        nvda = next(c for c in ai.companies if c.ticker == "NVDA")
+        samsung = next(c for c in ai.companies if c.ticker == "005930.KS")
+        assert nvda.cap_usd == 300.0
+        assert nvda.day_change_pct == pytest.approx(50.0)  # D2 vs D1 (자기 전일)
+        assert samsung.cap_usd == 121.0
+        assert samsung.day_change_pct == pytest.approx(10.0)  # D3 vs D2
+        assert ai.total_usd == pytest.approx(421.0)
+        assert summary.ratio == pytest.approx(421.0 / 330.0)
+        # 전일 비율도 종목별 직전 관측치의 합으로 계산
+        assert summary.ratio_prev == pytest.approx((200.0 + 110.0) / 300.0)
+        assert summary.basis_dates == {"미국": D2, "한국": D3}
+
+    def test_single_observation_yields_no_prev(self):
+        caps = [_cap(D1, "NVDA", 200.0), _cap(D1, "MSFT", 300.0)]
+        series = build_series(caps, ["NVDA"], ["MSFT"], [], base_date=D1)
+        summary = summarize(series, caps, {"NVDA": "엔비디아"}, {"MSFT": "MS"}, 0.8)
+        assert summary.ratio_prev is None
+        assert summary.change_pp is None
+        assert summary.groups[0].companies[0].day_change_pct is None
+
+
 class TestThresholdStatus:
     def test_cross_up(self):
         assert threshold_status(0.81, 0.79, 0.8) == "cross_up"

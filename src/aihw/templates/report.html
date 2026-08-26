@@ -20,6 +20,7 @@
 <h1>AI HW / 빅테크 시총 비율 — {{ summary.as_of.isoformat() }}</h1>
 <p class="ratio">{{ ratio_pct }} <span style="font-size:16px; color:#888;">
   (경고선 {{ '%.0f' % (summary.threshold * 100) }}%)</span></p>
+{% if basis_line %}<p style="color:#888; margin-top:-8px;">{{ basis_line }}</p>{% endif %}
 {{ ratio_div }}
 {{ cap_div }}
 {{ index_div }}

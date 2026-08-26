@@ -60,3 +60,4 @@ class AihwSummary(BaseModel):
     threshold: float
     status: str | None  # "cross_up" | "cross_down" | "above" | None
     groups: list[GroupSummary]
+    basis_dates: dict[str, date] = {}  # 시장 라벨("미국"/"한국") → 해당 시장 기준일

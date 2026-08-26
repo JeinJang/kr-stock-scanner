@@ -319,6 +319,11 @@ def aihw(
     )
     if s.change_pp is not None:
         console.print(f"전일 대비 {s.change_pp:+.1f}%p · 30일 최고 {s.high_30d * 100:.1f}%")
+    from src.aihw.report import build_basis_line
+
+    basis = build_basis_line(s)
+    if basis:
+        console.print(f"[dim]{basis}[/dim]")
     for group in s.groups:
         console.print(f"[bold][{group.name}][/bold] ${group.total_usd / 1e12:.2f}T")
     console.print(f"HTML: {result.html_path}")

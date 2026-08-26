@@ -72,18 +72,27 @@ class TestBuildDailyCaps:
             for c in caps
         )
 
-    def test_trailing_rows_after_snapshot_date_are_dropped(self):
+    def test_trailing_rows_keep_only_raw_observations(self):
         # 16:00 KST 실행: 마지막 날(1/12)에 한국 종가는 있지만 미국(NVDA)은 아직 없음.
-        # snapshot_date(마지막 완전 거래일) 이후의 하이브리드 행은 배출하지 않아야
-        # 미국 주식 전일 대비가 0%로 뜨는 문제가 생기지 않는다.
+        # snapshot_date(마지막 완전 거래일) 이후 구간은 실제 관측치만 배출하고,
+        # ffill 복사본(미국 종가)은 배출하지 않는다 — 복사본이 배출되면 미국 종목
+        # 전일 대비가 0%로 표시된다.
         prices = _prices()
         prices.loc[IDX[2], "NVDA"] = None  # 미국 미마감
         caps = build_daily_caps(
             prices, SHARES, _fx(), ["NVDA", "005930.KS"], ["SPY"],
             snapshot_date=date(2026, 1, 11),
         )
-        assert max(c.date for c in caps) == date(2026, 1, 11)
-        assert not any(c.date == date(2026, 1, 12) for c in caps)
+        d3 = [c for c in caps if c.date == date(2026, 1, 12)]
+        tickers_d3 = {c.ticker for c in d3}
+        assert "NVDA" not in tickers_d3  # ffill 복사본 미배출
+        assert "005930.KS" in tickers_d3  # 실제 관측치는 배출
+        assert "SPY" in tickers_d3
+        ks = next(c for c in d3 if c.ticker == "005930.KS")
+        assert ks.close == pytest.approx(72000.0)
+        assert ks.source == "backfill"
+        # 완전 구간(1/11 이하)은 기존처럼 ffill 유지
+        assert any(c.ticker == "NVDA" and c.date == date(2026, 1, 11) for c in caps)
 
     def test_missing_cap_ticker_column_raises(self):
         with pytest.raises(FetchError, match="MU"):

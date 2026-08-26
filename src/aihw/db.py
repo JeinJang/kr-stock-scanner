@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, Float, String, create_engine, select
+from sqlalchemy import (
+    BigInteger, Column, Date, DateTime, Float, String, create_engine, delete, select,
+)
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -65,6 +67,17 @@ class AihwDB:
                 saved += result.rowcount
             session.commit()
         return saved
+
+    def delete_caps_after(self, cutoff: date) -> int:
+        """cutoff(마지막 완전 거래일) 이후의 트레일링 행 삭제.
+
+        트레일링 구간은 매 실행마다 새로 수집한 실제 관측치로 갈아엎는다 —
+        이전 실행이 남긴 부분/오염 행이 요약에 섞이는 것을 막는다.
+        """
+        with Session(self.engine) as session:
+            result = session.execute(delete(DailyCapRow).where(DailyCapRow.date > cutoff))
+            session.commit()
+            return result.rowcount
 
     def load_caps(self, start: date, end: date) -> list[DailyCap]:
         with Session(self.engine) as session:

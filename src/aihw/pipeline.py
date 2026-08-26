@@ -39,12 +39,17 @@ def run_aihw(
     fetched = fetch(cap_tickers, config.benchmarks, base_date, date.today())
     if not fetched:
         raise ValueError("aihw 수집 결과가 비어 있습니다")
+
+    # 마지막 완전 거래일(snapshot) 이후의 트레일링 구간은 매 실행마다 갈아엎는다 —
+    # 이전 실행이 남긴 부분/오염 행(ffill 복사본 등)이 요약에 섞이지 않게 한다.
+    snap_dates = [c.date for c in fetched if c.source == "snapshot"]
+    if snap_dates:
+        removed = db.delete_caps_after(max(snap_dates))
+        if removed:
+            logger.info(f"트레일링 잔존 행 {removed}건 삭제 (기준일 {max(snap_dates)} 이후)")
     db.save_caps(fetched)
 
-    # 로드 범위를 이번 fetch의 마지막(완전) 거래일까지로 제한 — 이전 실행이 남긴
-    # 트레일링 하이브리드 행(미국 종가 ffill)이 리포트에 섞이지 않게 한다.
-    end_date = max(c.date for c in fetched)
-    caps = db.load_caps(base_date, end_date)
+    caps = db.load_caps(base_date, date.today())
     series = build_series(
         caps,
         ai_hw=list(config.ai_hw_tickers),
