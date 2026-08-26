@@ -42,6 +42,21 @@ class TestRunAihw:
         # DB에 저장됐는지
         assert len(db.load_caps(D1, D2)) == 6
 
+    def test_stale_trailing_db_rows_are_excluded(self, tmp_path):
+        # 이전 실행이 남긴 하이브리드 행(미국 종가 ffill)이 DB에 있어도,
+        # 이번 fetch의 마지막 날짜 이후 행은 리포트에 포함되지 않아야 한다.
+        cfg = CFG.model_copy(update={"report_dir": str(tmp_path)})
+        db = AihwDB(url="sqlite:///:memory:")
+        stale = date(2026, 1, 14)  # fetch 범위(D2=1/13) 이후의 잔존 행
+        db.save_caps([
+            DailyCap(date=stale, ticker="NVDA", close=100.0, shares=10,
+                     market_cap_usd=3.3e12, source="backfill"),
+            DailyCap(date=stale, ticker="MSFT", close=100.0, shares=10,
+                     market_cap_usd=4.0e12, source="backfill"),
+        ])
+        result = run_aihw(cfg, db=db, fetch=_fake_fetch)
+        assert result.summary.as_of == D2  # stale(1/14)이 아니라 fetch 마지막 날
+
     def test_snapshot_persists_across_runs(self, tmp_path):
         cfg = CFG.model_copy(update={"report_dir": str(tmp_path)})
         db = AihwDB(url="sqlite:///:memory:")

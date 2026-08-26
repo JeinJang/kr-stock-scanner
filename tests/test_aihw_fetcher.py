@@ -72,6 +72,19 @@ class TestBuildDailyCaps:
             for c in caps
         )
 
+    def test_trailing_rows_after_snapshot_date_are_dropped(self):
+        # 16:00 KST 실행: 마지막 날(1/12)에 한국 종가는 있지만 미국(NVDA)은 아직 없음.
+        # snapshot_date(마지막 완전 거래일) 이후의 하이브리드 행은 배출하지 않아야
+        # 미국 주식 전일 대비가 0%로 뜨는 문제가 생기지 않는다.
+        prices = _prices()
+        prices.loc[IDX[2], "NVDA"] = None  # 미국 미마감
+        caps = build_daily_caps(
+            prices, SHARES, _fx(), ["NVDA", "005930.KS"], ["SPY"],
+            snapshot_date=date(2026, 1, 11),
+        )
+        assert max(c.date for c in caps) == date(2026, 1, 11)
+        assert not any(c.date == date(2026, 1, 12) for c in caps)
+
     def test_missing_cap_ticker_column_raises(self):
         with pytest.raises(FetchError, match="MU"):
             build_daily_caps(_prices(), SHARES, _fx(), ["NVDA", "MU"], [], None)

@@ -37,9 +37,14 @@ def run_aihw(
 
     logger.info(f"aihw 수집 시작: {len(cap_tickers)}종목 + {config.benchmarks}")
     fetched = fetch(cap_tickers, config.benchmarks, base_date, date.today())
+    if not fetched:
+        raise ValueError("aihw 수집 결과가 비어 있습니다")
     db.save_caps(fetched)
 
-    caps = db.load_caps(base_date, date.today())
+    # 로드 범위를 이번 fetch의 마지막(완전) 거래일까지로 제한 — 이전 실행이 남긴
+    # 트레일링 하이브리드 행(미국 종가 ffill)이 리포트에 섞이지 않게 한다.
+    end_date = max(c.date for c in fetched)
+    caps = db.load_caps(base_date, end_date)
     series = build_series(
         caps,
         ai_hw=list(config.ai_hw_tickers),
